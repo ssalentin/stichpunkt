@@ -80,6 +80,10 @@ claude mcp add --transport http mdwiki https://mdwiki.example.org/mcp --header "
 
 `docker compose stop` (keep containers), `docker compose down` (remove containers; `space/` is a bind mount and is never touched), `docker compose down -v` also drops the diagram cache volume.
 
+## Example knowledge base
+
+`examples/knowledge/` is a generated, content-free example space that shows every feature (wikilinks, tags and tag pages, tables, tasks, code, attachments, inert SilverBullet syntax, Mermaid, Vega-Lite, KaTeX, all Kroki diagram types, broken diagrams, short and long pages). Try it: `SPACE_DIR=examples/knowledge node build/index.js` (with `KROKI_URL` set for the server-side diagrams).
+
 ## Develop and test
 
 ```sh
