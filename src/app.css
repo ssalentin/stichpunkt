@@ -31,13 +31,14 @@
 }
 
 * { box-sizing: border-box; }
-html { -webkit-text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
 body {
 	margin: 0;
 	background: var(--bg);
 	color: var(--fg);
 	font: 16px/1.6 var(--sans);
 	overflow-x: hidden;
+	overscroll-behavior: none; /* no rubber-band wiggle on short pages */
 }
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
@@ -225,13 +226,13 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 
 /* ---- overlays ---- */
 .overlay { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.55); display: flex; justify-content: center; align-items: flex-start; padding: 8vh 0.75rem 0; }
-.switcher { width: min(36rem, 100%); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem; max-height: 80dvh; overflow: auto; }
+.switcher { overscroll-behavior: contain; width: min(36rem, 100%); background: var(--bg); border: 1px solid var(--border); border-radius: 10px; padding: 0.6rem; max-height: 80dvh; overflow: auto; }
 .switcher ul { list-style: none; padding: 0; margin: 0.4rem 0 0; }
 .switcher li button { width: 100%; text-align: left; padding: 0.65rem 0.6rem; border: 0; border-radius: 6px; background: none; color: var(--fg); font: 0.9rem var(--mono); min-height: 44px; overflow-wrap: anywhere; }
 .switcher li button.sel { background: var(--sel); }
 .switcher li button.create { color: var(--accent); }
 .sheet-bg { align-items: flex-end; padding: 0; }
-.sheet { width: 100%; max-height: 75dvh; overflow-y: auto; background: var(--bg); border-top: 1px solid var(--border); border-radius: 14px 14px 0 0; padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom)); font-size: 0.9rem; }
+.sheet { overscroll-behavior: contain; width: 100%; max-height: 75dvh; overflow-y: auto; background: var(--bg); border-top: 1px solid var(--border); border-radius: 14px 14px 0 0; padding: 0.5rem 1rem calc(1rem + env(safe-area-inset-bottom)); font-size: 0.9rem; }
 .sheet .grip { width: 2.5rem; height: 4px; border-radius: 2px; background: var(--border); margin: 0.3rem auto 0.5rem; }
 .toast { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); bottom: calc(var(--bar-h) + 1rem + env(safe-area-inset-bottom)); background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.9rem; font: 0.85rem var(--mono); }
 
