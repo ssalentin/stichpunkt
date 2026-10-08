@@ -386,7 +386,7 @@ export function createMarkdown() {
 
 	r.task_checkbox = (tokens, idx) => {
 		const { checked, line } = tokens[idx].meta as { checked: boolean; line: number };
-		return `<input type="checkbox" class="task" data-line="${line}"${checked ? ' checked' : ''}> `;
+		return `<input type="checkbox" class="task" data-line="${line}" disabled${checked ? ' checked' : ''}> `;
 	};
 
 	r.table_open = () => '<div class="table-wrap"><table>\n';

@@ -1,6 +1,5 @@
 <script lang="ts">
-	import { goto, invalidate } from '$app/navigation';
-	import { api, toast, ui } from '#lib/ui.svelte';
+		import { toast } from '#lib/ui.svelte';
 
 	interface View {
 		path: string;
@@ -9,16 +8,6 @@
 		tags: string[];
 	}
 	let { view, onnavigate }: { view: View; onnavigate?: () => void } = $props();
-
-	async function remove() {
-		if (!confirm(`Delete "${view.path}"? This cannot be undone.`)) return;
-		const r = await api('DELETE', '/_ui/page', { path: view.path });
-		if (r.status === 200) {
-			await invalidate('app:space');
-			await goto('/');
-		} else toast(r.data?.message ?? 'Delete failed');
-		onnavigate?.();
-	}
 
 	async function copyLink() {
 		try {
@@ -58,7 +47,5 @@
 </section>
 <section class="actions">
 	<h3>Page</h3>
-	<a class="btn" href="/{encodeURI(view.path)}?edit=1" onclick={() => onnavigate?.()}>Edit</a>
 	<button class="btn" onclick={copyLink}>Copy [[link]]</button>
-	<button class="btn danger" onclick={remove} disabled={!!ui.editor}>Delete</button>
 </section>

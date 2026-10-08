@@ -1,9 +1,7 @@
 /** Small shared UI state (runes module). */
 export const ui = $state({
-	switcher: null as null | 'switch' | 'new',
+	switcher: null as null | 'switch',
 	sheet: false,
-	/** set by the editor while mounted */
-	editor: null as null | { save: () => void; saving: boolean; dirty: boolean; focused: boolean; exit: () => void },
 	toast: ''
 });
 
@@ -29,19 +27,4 @@ export function visit(path: string) {
 	} catch {
 		/* private mode */
 	}
-}
-
-export async function api<T = any>(method: string, url: string, body?: unknown): Promise<{ status: number; data: T }> {
-	const res = await fetch(url, {
-		method,
-		headers: body === undefined || body instanceof FormData ? {} : { 'content-type': 'application/json' },
-		body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body)
-	});
-	let data: any = null;
-	try {
-		data = await res.json();
-	} catch {
-		/* empty body */
-	}
-	return { status: res.status, data };
 }

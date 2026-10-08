@@ -114,11 +114,13 @@ describe('auth gate (hooks.server)', () => {
 		process.env.MDWIKI_API_TOKEN = TOKEN;
 	});
 
-	it('leaves the web UI open (Authelia sits in front) and checks origin on UI writes', async () => {
+	it('leaves the web UI readable (Authelia sits in front) but exposes no write endpoint', async () => {
 		expect(await run('GET', '/Server/Alpha')).toEqual({ status: 200, reached: true });
-		expect((await run('PUT', '/_ui/page')).status).toBe(403);
-		expect((await run('PUT', '/_ui/page', { origin: 'https://evil.example' })).status).toBe(403);
-		expect((await run('PUT', '/_ui/page', { origin: 'http://localhost' })).reached).toBe(true);
+		for (const method of ['PUT', 'POST', 'DELETE', 'PATCH']) {
+			for (const url of ['/_ui/page', '/_ui/toggle', '/_ui/upload']) {
+				expect(await run(method, url, { origin: 'http://localhost' }), `${method} ${url}`).toEqual({ status: 405, reached: false });
+			}
+		}
 	});
 });
 

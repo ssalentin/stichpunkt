@@ -59,7 +59,7 @@ describe('other syntax', () => {
 		const body = src.slice(src.indexOf('- [ ]'));
 		const { html } = renderBody(body, { lineOffset: 3 });
 		expect(html).toContain('data-line="3"');
-		expect(html).toContain('data-line="4" checked');
+		expect(html).toContain('data-line="4" disabled checked');
 	});
 
 	it('emits client placeholders and kroki jobs from one registry', () => {

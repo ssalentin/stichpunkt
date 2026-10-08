@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { page } from '$app/state';
 	import { rank, type Titled } from '#lib/fuzzy';
 	import { recentPages, ui } from '#lib/ui.svelte';
 	import { tick } from 'svelte';
@@ -13,8 +12,7 @@
 
 	$effect(() => {
 		if (!mode) return;
-		const cur = page.params.path ?? '';
-		q = mode === 'new' && cur.includes('/') ? cur.slice(0, cur.lastIndexOf('/') + 1) : '';
+		q = '';
 		sel = 0;
 		fetch('/_ui/titles')
 			.then((r) => r.json())
@@ -24,17 +22,13 @@
 	});
 
 	const matches = $derived(mode === 'switch' ? rank(items, q, recentPages(), 12) : []);
-	const exact = $derived(items.some((i) => i.path.toLowerCase() === q.trim().toLowerCase()));
-	type Row = { label: string; hint?: string; go: () => void; create?: boolean };
+	type Row = { label: string; hint?: string; go: () => void };
 	const rows = $derived.by<Row[]>(() => {
 		const name = q.trim().replace(/^\/+|\/+$/g, '');
 		const out: Row[] = [];
 		if (mode === 'switch') {
 			for (const m of matches) out.push({ label: m.path, go: () => open(`/${encodeURI(m.path)}`) });
-			if (name && !exact) out.push({ label: `Create "${name}"`, create: true, go: () => open(`/${encodeURI(name)}?edit=1`) });
 			if (name) out.push({ label: `Search text for "${name}"`, hint: 'full-text', go: () => open(`/search?q=${encodeURIComponent(name)}`) });
-		} else if (name) {
-			out.push({ label: `Create "${name}"`, create: true, go: () => open(`/${encodeURI(name)}?edit=1`) });
 		}
 		return out;
 	});
@@ -54,12 +48,12 @@
 
 {#if mode}
 	<div class="overlay" role="presentation" onclick={() => (ui.switcher = null)}>
-		<div class="switcher" role="dialog" aria-label={mode === 'new' ? 'New page' : 'Quick switcher'} tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={key}>
+		<div class="switcher" role="dialog" aria-label="Quick switcher" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={key}>
 			<input
 				bind:this={input}
 				bind:value={q}
 				oninput={() => (sel = 0)}
-				placeholder={mode === 'new' ? 'New page name, e.g. Server/Notes' : 'Jump to page…'}
+				placeholder="Jump to page…"
 				autocapitalize="off"
 				autocomplete="off"
 				spellcheck="false"
@@ -67,9 +61,9 @@
 			/>
 			<ul>
 				{#each rows as r, i}
-					<li><button class:sel={i === sel} class:create={r.create} onmouseenter={() => (sel = i)} onclick={r.go}>{r.label}{#if r.hint}<span class="muted"> {r.hint}</span>{/if}</button></li>
+					<li><button class:sel={i === sel}  onmouseenter={() => (sel = i)} onclick={r.go}>{r.label}{#if r.hint}<span class="muted"> {r.hint}</span>{/if}</button></li>
 				{:else}
-					<li class="muted pad">{mode === 'new' ? 'Type a name (folders with /)' : 'No pages yet'}</li>
+					<li class="muted pad">No matching pages</li>
 				{/each}
 			</ul>
 		</div>

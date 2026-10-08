@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { BRAND } from '#lib/brand';
-	import { afterNavigate, invalidateAll } from '$app/navigation';
+	import { afterNavigate } from '$app/navigation';
 	import { enhance } from '#lib/client/diagrams';
-	import { api, toast } from '#lib/ui.svelte';
 
 	let { data } = $props();
 	let article: HTMLElement | undefined = $state();
@@ -16,43 +15,14 @@
 		if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
 	});
 
-	async function onchange(e: Event) {
-		const box = e.target as HTMLInputElement;
-		if (!box.matches?.('input.task') || !data.view) return;
-		const checked = box.checked;
-		const r = await api('POST', '/_ui/toggle', {
-			path: data.view.path,
-			line: Number(box.dataset.line),
-			base_hash: data.view.hash
-		});
-		if (r.status !== 200) {
-			box.checked = !checked;
-			toast(r.status === 409 ? 'Page changed meanwhile, reloaded' : (r.data?.message ?? 'Could not save'));
-		}
-		// reload page data so the hash matches the file again
-		await invalidateAll();
-	}
-
 	const props = $derived(Object.entries(data.view?.frontmatter ?? {}));
 	const fmt = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 </script>
 
 <svelte:head><title>{data.name} · {BRAND}</title></svelte:head>
 
-{#if data.edit}
-	{#await import('#lib/components/Editor.svelte')}
-		<p class="muted pad">Loading editor…</p>
-	{:then { default: Editor }}
-		{#key data.name}
-			<Editor
-				path={data.name}
-				initial={data.raw?.content ?? ''}
-				baseHash={data.raw ? data.raw.hash : ''}
-			/>
-		{/key}
-	{/await}
-{:else if data.kind === 'page' && data.view}
-	<article class="page" bind:this={article} onchange={onchange}>
+{#if data.kind === 'page' && data.view}
+	<article class="page" bind:this={article}>
 		{#if props.length}
 			<details class="props">
 				<summary>Properties</summary>
@@ -72,8 +42,7 @@
 {:else}
 	<article class="page">
 		<h1>{data.name}</h1>
-		<p class="muted">This page does not exist yet.</p>
-		<p><a class="btn primary" href="/{encodeURI(data.name)}?edit=1">Create page</a></p>
+		<p class="muted">This page does not exist. Pages are written by agents through the MCP server.</p>
 		{#if data.namespace.length}
 			<h2>In {data.name}/</h2>
 			<ul>{#each data.namespace as p}<li><a href="/{encodeURI(p.path)}">{p.path}</a></li>{/each}</ul>

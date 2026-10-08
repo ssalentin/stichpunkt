@@ -10,8 +10,8 @@ SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki co
 - Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code.
 - SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
 - Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
-- Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs, task toggling in read mode.
-- CodeMirror 6 editor (lazy), `[[` and `#` autocomplete, mobile toolbar, conflict-safe saves (409 with both versions), photo/file upload into `_attachments/`.
+- Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs. Task checkboxes are shown disabled.
+- **Read-only web UI**: no editor, task toggling, upload or delete in the browser; `/_ui/*` answers 405 to every non-GET. Changes are made only by agents writing through MCP (`write_page`, `append_to_page`, `delete_page`, `upload_attachment`) or the equivalent token-protected REST API.
 - Diagrams behind one registry (`src/lib/diagrams.ts`): Mermaid, Vega-Lite, KaTeX client-side and lazy; PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa via Kroki (SVG cached by hash). Broken diagrams show the error and the source.
 - Installable PWA; service worker caches the shell and the last ~50 visited pages for offline reading. Editing needs a connection.
 
@@ -23,7 +23,7 @@ mkdir space                      # or copy your markdown directory here
 docker compose up -d --build
 ```
 
-The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` and its CSRF check rejects uploads on plain HTTP.
+The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` for generated URLs.
 
 Without Docker: `npm ci && npm run build && SPACE_DIR=./space MDWIKI_API_TOKEN=… node build/index.js`.
 
@@ -91,5 +91,5 @@ npm run build
 Test fixtures live in `test/fixtures/space` (synthetic; no real content). Notes:
 
 - Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
-- The web UI has no login of its own; put it behind SSO. `/_ui/*` state-changing calls additionally require a same-origin `Origin` header.
+- The web UI has no login of its own; put it behind SSO. It is read only, so even an unauthenticated visitor cannot change content through it.
 - Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).

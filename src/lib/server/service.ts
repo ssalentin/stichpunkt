@@ -2,7 +2,7 @@ import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
 import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type Rendered } from './markdown';
-import { assertAllowedExtension, extOf, fileToPage, normalizeRel, pageToFile } from './paths';
+import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
 import { hashOf, Store } from './store';
 
@@ -151,44 +151,6 @@ export class Mdwiki {
 		return this.store.withLock(rel, async () => {
 			const info = await this.store.write(rel, bytes, 'upload');
 			return { path: rel, size: info.size, hash: hashOf(bytes) };
-		});
-	}
-
-	/** Phone/desktop upload next to the page: <dir>/_attachments/<stamp>-<name>. */
-	async uploadForPage(page: string, filename: string, bytes: Buffer) {
-		const dir = this.pageName(page).includes('/') ? this.pageName(page).replace(/\/[^/]*$/, '') + '/' : '';
-		const dot = filename.lastIndexOf('.');
-		const stem = (dot > 0 ? filename.slice(0, dot) : filename)
-			.normalize('NFC')
-			.replace(/[^\p{L}\p{N}_-]+/gu, '-')
-			.replace(/^-+|-+$/g, '')
-			.slice(0, 60) || 'file';
-		const ext = dot > 0 ? filename.slice(dot + 1).toLowerCase().replace(/[^a-z0-9]/g, '') : '';
-		const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
-		const rel = `${dir}_attachments/${stamp}-${stem}.${ext}`;
-		const res = await this.uploadAttachment(rel, bytes);
-		const isImage = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'heic'].includes(extOf(rel));
-		const link = `_attachments/${rel.split('/').pop()}`;
-		return { ...res, markdown: isImage ? `![${stem}](${link})` : `[${stem}.${ext}](${link})` };
-	}
-
-	/** Flips the task checkbox on a source line. Refuses when the file changed since `baseHash`. */
-	async toggleTask(page: string, line: number, baseHash: string) {
-		const rel = pageToFile(page);
-		return this.store.withLock(rel, async () => {
-			const cur = await this.store.read(rel);
-			if (!cur) throw new MdwikiError(404, 'not_found', 'Page does not exist');
-			if (hashOf(cur.data) !== baseHash) throw conflict(cur);
-			const lines = cur.data.toString('utf8').split('\n');
-			const m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\].*)$/s.exec(lines[line] ?? '');
-			if (!m) throw conflict(cur);
-			const checked = m[2] === ' ';
-			lines[line] = `${m[1]}${checked ? 'x' : ' '}${m[3]}`;
-			const next = lines.join('\n');
-			const data = Buffer.from(next, 'utf8');
-			const info = await this.store.write(rel, data, 'page');
-			this.index.applyWrite(fileToPage(rel), next, info);
-			return { path: fileToPage(rel), hash: hashOf(data), checked };
 		});
 	}
 

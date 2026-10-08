@@ -79,14 +79,13 @@ describe('external changes (mtime poll)', () => {
 	});
 });
 
-describe('tasks', () => {
-	it('toggles a checkbox on the right line and writes it back to the file', async () => {
-		const { mdwiki, dir } = await setup();
-		const before = await mdwiki.readPage('Server/Beta');
-		const line = before.content.split('\n').findIndex((l) => l.includes('open task') && !l.includes('nested'));
-		const res = await mdwiki.toggleTask('Server/Beta', line, before.hash);
-		expect(res.checked).toBe(true);
-		expect(fs.readFileSync(path.join(dir, 'Server/Beta.md'), 'utf8')).toContain('- [x] open task');
-		await expect(mdwiki.toggleTask('Server/Beta', line, before.hash)).rejects.toMatchObject({ status: 409 });
+describe('read-only UI', () => {
+	it('renders task checkboxes disabled and the service has no UI write helpers', async () => {
+		const { mdwiki } = await setup();
+		const v = await mdwiki.renderPage('Server/Beta');
+		expect(v!.html).toMatch(/<input type="checkbox" class="task" data-line="\d+" disabled>/);
+		expect(v!.html).toContain('disabled checked');
+		expect('toggleTask' in mdwiki).toBe(false);
+		expect('uploadForPage' in mdwiki).toBe(false);
 	});
 });

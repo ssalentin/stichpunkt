@@ -85,7 +85,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	z-index: 30;
 	left: 0; right: 0; bottom: 0;
 	display: grid;
-	grid-template-columns: repeat(5, 1fr);
+	grid-template-columns: repeat(4, 1fr);
 	height: calc(var(--bar-h) + env(safe-area-inset-bottom));
 	padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 	background: var(--panel);

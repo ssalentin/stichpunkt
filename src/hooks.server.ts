@@ -10,17 +10,6 @@ const json = (status: number, body: unknown, headers: Record<string, string> = {
 		headers: { 'content-type': 'application/json', 'cache-control': 'no-store', ...headers }
 	});
 
-/** Browsers always send Origin on these calls; compare its host with the Host we were addressed by. */
-function sameOrigin(request: Request, url: URL): boolean {
-	const origin = request.headers.get('origin');
-	if (!origin || request.headers.get('sec-fetch-site') === 'cross-site') return false;
-	try {
-		return new URL(origin).host === (request.headers.get('host') ?? url.host);
-	} catch {
-		return false;
-	}
-}
-
 export const handle: Handle = async ({ event, resolve }) => {
 	const t0 = performance.now();
 	const { pathname } = event.url;
@@ -38,10 +27,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 			});
 		}
 	} else if (pathname.startsWith('/_ui/') && !['GET', 'HEAD'].includes(event.request.method)) {
-		// state-changing UI calls must come from this origin (the UI has no login of its own)
-		if (!sameOrigin(event.request, event.url)) {
-			return json(403, { error: 'forbidden', message: 'Cross-origin request refused' });
-		}
+		// the web UI is read only: it exposes no mutating endpoints at all
+		return json(405, { error: 'read_only', message: 'The web UI is read only' }, { allow: 'GET, HEAD' });
 	}
 
 	const res = await resolve(event);
