@@ -92,9 +92,9 @@
 
 	<nav class="bar" aria-label="Primary">
 		<button onclick={back}><span>←</span>Back</button>
-		<button onclick={() => (ui.switcher = 'switch')}><span>⌕</span>Search</button>
-		<a href="/" class="barlink"><span>⌂</span>Home</a>
 		<button onclick={() => (ui.sheet = true)} disabled={!view}><span>⋯</span>More</button>
+		<a href="/" class="barlink"><span>⌂</span>Home</a>
+		<button onclick={() => (ui.switcher = 'switch')}><span>⌕</span>Search</button>
 	</nav>
 
 	{#if ui.sheet && view}
