@@ -22,6 +22,32 @@ describe('index', () => {
 		expect(mdwiki.index.resolve('Does Not Exist', 'index')).toBeNull();
 	});
 
+	it('labels a link with the page name, adding the folder only when the name is ambiguous', async () => {
+		const { mdwiki } = await setup();
+		// unique basenames render as the name alone
+		expect(mdwiki.index.displayName('Server/Alpha')).toBe('Alpha');
+		expect(mdwiki.index.displayName('Server/Beta')).toBe('Beta');
+		expect(mdwiki.index.displayName('Syntax')).toBe('Syntax');
+		// a second page with the same name makes both keep their folder
+		await mdwiki.writePage('Notes/Alpha', 'a duplicate name');
+		expect(mdwiki.index.displayName('Server/Alpha')).toBe('Server/Alpha');
+		expect(mdwiki.index.displayName('Notes/Alpha')).toBe('Notes/Alpha');
+	});
+
+	it('renders wikilinks with the page name and keeps the full path in the title', async () => {
+		const { mdwiki } = await setup();
+		const view = await mdwiki.renderPage('index');
+		const html = view!.html;
+		// [[Server/Alpha|Alpha, aliased]] keeps the alias
+		expect(html).toContain('title="Server/Alpha">Alpha, aliased</a>');
+		// [[Server/Alpha#Setup Steps]] shows the page name and the heading
+		expect(html).toContain('href="/Server/Alpha#setup-steps" title="Server/Alpha → Setup Steps">Alpha › Setup Steps</a>');
+		// [[Syntax]] is unique, so no folder prefix is shown
+		expect(html).toContain('href="/Syntax" title="Syntax">Syntax</a>');
+		// an unresolved link still shows what is missing
+		expect(html).toContain('class="wikilink missing"');
+	});
+
 	it('collects frontmatter and inline tags and hides Library', async () => {
 		const { mdwiki } = await setup();
 		const tags = Object.fromEntries(mdwiki.listTags().map((t) => [t.name, t.count]));

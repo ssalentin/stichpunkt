@@ -1,16 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, renderBody } from '../src/lib/server/markdown';
 
-const render = (src: string, known: Record<string, string> = {}) =>
-	renderBody(src, { dir: '', resolve: (t) => known[t] ?? null });
+const render = (src: string, known: Record<string, string> = {}, label?: (p: string) => string) =>
+	renderBody(src, { dir: '', resolve: (t) => known[t] ?? null, label });
 
 describe('wikilinks', () => {
 	it('renders [[P]], [[P|alias]] and [[P#H]]', () => {
 		const known = { Page: 'Page', 'Dir/Other': 'Dir/Other' };
 		const { html } = render('[[Page]] [[Page|shown]] [[Dir/Other#My Heading]]', known);
-		expect(html).toContain('<a class="wikilink" href="/Page">Page</a>');
-		expect(html).toContain('<a class="wikilink" href="/Page">shown</a>');
+		expect(html).toContain('<a class="wikilink" href="/Page" title="Page">Page</a>');
+		expect(html).toContain('<a class="wikilink" href="/Page" title="Page">shown</a>');
 		expect(html).toContain('href="/Dir/Other#my-heading"');
+		expect(html).toContain('Dir/Other › My Heading');
+	});
+
+	it('labels a resolved link with the page name, not the raw target path', () => {
+		const known = { 'Server/personal01': 'Server/personal01' };
+		const label = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+		const { html } = render('see [[Server/personal01]]', known, label);
+		expect(html).toContain('href="/Server/personal01" title="Server/personal01">personal01</a>');
+		expect(html).not.toContain('>Server/personal01</a>');
+	});
+
+	it('keeps an explicit alias and the heading on a named link', () => {
+		const known = { 'Konventionen/Sprache': 'Konventionen/Sprache' };
+		const label = (p: string) => p.slice(p.lastIndexOf('/') + 1);
+		const { html } = render('[[Konventionen/Sprache|Regeln]] [[Konventionen/Sprache#Ton]]', known, label);
+		expect(html).toContain('title="Konventionen/Sprache">Regeln</a>');
+		expect(html).toContain('>Sprache › Ton</a>');
 	});
 
 	it('marks unresolved links as missing and keeps code spans literal', () => {

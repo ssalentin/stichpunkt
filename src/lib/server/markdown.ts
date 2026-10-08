@@ -94,6 +94,8 @@ export interface RenderEnv {
 	[key: string]: unknown;
 	/** resolves a wikilink target to an existing page path, or null */
 	resolve?: (target: string) => string | null;
+	/** human label for a resolved page path (page name, folder only when ambiguous) */
+	label?: (path: string) => string;
 	/** directory of the current page, for relative URLs */
 	dir?: string;
 	lineOffset?: number;
@@ -343,15 +345,19 @@ export function createMarkdown() {
 		const { target, heading, alias } = tokens[idx].meta as unknown as WikiLink;
 		(env.links ??= []).push({ target, heading, alias });
 		const resolved = target ? (env.resolve?.(target) ?? null) : env.dir !== undefined ? '' : null;
-		const label = alias ?? (target ? target + (heading ? `#${heading}` : '') : `#${heading}`);
 		const frag = heading ? '#' + slugify(heading) : '';
-		if (target === '') return `<a class="wikilink" href="${frag}">${escapeHtml(label)}</a>`;
+		if (target === '') return `<a class="wikilink" href="${frag}">${escapeHtml(alias ?? `#${heading}`)}</a>`;
+		// show the page name, not the raw target path; an explicit alias always wins
+		const name = resolved && env.label ? env.label(resolved) : target;
+		const label = alias ?? (heading ? `${name} › ${heading}` : name);
+		const full = resolved ?? target.replace(/^\//, '');
+		const title = heading ? `${full} → ${heading}` : full;
 		if (resolved) {
 			const href = '/' + encodeURI(resolved) + frag;
-			return `<a class="wikilink" href="${href}">${escapeHtml(label)}</a>`;
+			return `<a class="wikilink" href="${href}" title="${escapeHtml(title)}">${escapeHtml(label)}</a>`;
 		}
 		const href = '/' + encodeURI(target.replace(/^\//, ''));
-		return `<a class="wikilink missing" href="${href}" title="Page does not exist yet">${escapeHtml(label)}</a>`;
+		return `<a class="wikilink missing" href="${href}" title="Page does not exist yet: ${escapeHtml(full)}">${escapeHtml(label)}</a>`;
 	};
 
 	r.tag = (tokens, idx, _o, env: any) => {

@@ -215,6 +215,24 @@ export class SpaceIndex {
 		return null;
 	}
 
+	/**
+	 * Human label for a wikilink that targets `path`: the page name (last segment).
+	 * Only when several pages share that name is the shortest distinguishing folder
+	 * prefix added, so a unique `Konventionen/Sprache` reads as `Sprache` while
+	 * `Server/personal01` and `Privat/personal01` keep their folder.
+	 */
+	displayName(path: string): string {
+		const base = path.slice(path.lastIndexOf('/') + 1);
+		const cands = this.byBase.get(base.toLowerCase());
+		if (!cands || cands.length < 2) return base;
+		const segments = path.split('/');
+		for (let keep = 2; keep <= segments.length; keep++) {
+			const suffix = '/' + segments.slice(segments.length - keep).join('/').toLowerCase();
+			if (cands.every((c) => c === path || !c.toLowerCase().endsWith(suffix))) return segments.slice(segments.length - keep).join('/');
+		}
+		return path;
+	}
+
 	get(page: string): PageRec | undefined {
 		return this.pages.get(page);
 	}

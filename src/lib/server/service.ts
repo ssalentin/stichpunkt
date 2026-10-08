@@ -178,7 +178,8 @@ export class Mdwiki {
 			const rendered = renderBody(fm.body, {
 				dir,
 				lineOffset: fm.lineOffset,
-				resolve: (t) => this.index.resolve(t, name)
+				resolve: (t) => this.index.resolve(t, name),
+				label: (p) => this.index.displayName(p)
 			});
 			const withWidgets = this.fillWidgets(rendered.html, rendered.widgets, name);
 			const { html, failed } = await this.fillDiagrams(withWidgets, rendered.jobs);

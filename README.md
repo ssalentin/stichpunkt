@@ -11,7 +11,7 @@ The display name, tagline and brand palette live in one place, `src/lib/brand.ts
 ## Features
 
 - Directory of markdown files, folders are namespaces (`Server/SilverBullet.md` is page `Server/SilverBullet`). `Library/` is hidden from navigation.
-- Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code.
+- Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code. A wikilink displays the **page name**, not the typed path — the full path stays in the tooltip — and both pages keep their folder prefix only when their names collide.
 - SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
 - SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). Nothing is evaluated; any other `${...}` stays an inert chip.
 - Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
