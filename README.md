@@ -1,0 +1,91 @@
+# Folio
+
+A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; the server renders pages to HTML, keeps an in-memory index, and exposes the same operations over a web UI, a REST API (`/api/v1`) and an MCP server (`/mcp`).
+
+SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki container for server-side diagrams).
+
+## Features
+
+- Directory of markdown files, folders are namespaces (`Server/SilverBullet.md` is page `Server/SilverBullet`). `Library/` is hidden from navigation.
+- Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code.
+- SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
+- Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
+- Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs, task toggling in read mode.
+- CodeMirror 6 editor (lazy), `[[` and `#` autocomplete, mobile toolbar, conflict-safe saves (409 with both versions), photo/file upload into `_attachments/`.
+- Diagrams behind one registry (`src/lib/diagrams.ts`): Mermaid, Vega-Lite, KaTeX client-side and lazy; PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa via Kroki (SVG cached by hash). Broken diagrams show the error and the source.
+- Installable PWA; service worker caches the shell and the last ~50 visited pages for offline reading. Editing needs a connection.
+
+## Run
+
+```sh
+cp .env.example .env            # set FOLIO_API_TOKEN (openssl rand -base64 32)
+mkdir space                      # or copy your markdown directory here
+docker compose up -d --build
+```
+
+The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` and its CSRF check rejects uploads on plain HTTP.
+
+Without Docker: `npm ci && npm run build && SPACE_DIR=./space FOLIO_API_TOKEN=… node build/index.js`.
+
+## Configuration
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
+| `FOLIO_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **empty = both always answer 401** |
+| `KROKI_URL` | empty | internal Kroki base URL; empty disables server-side diagrams (they show an error block) |
+| `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
+| `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
+| `MAX_UPLOAD_BYTES` | `20971520` | max size of an attachment |
+| `CACHE_DIR` | system temp (`/cache` in the image) | rendered diagram SVGs |
+| `BODY_SIZE_LIMIT` | `25M` (image) | adapter-node request body limit; keep ≥ `MAX_UPLOAD_BYTES` |
+| `PORT`, `HOST`, `PROTOCOL_HEADER`, `HOST_HEADER` | | adapter-node settings |
+
+Allowed file extensions (read/write/upload): `md txt csv json pdf png jpg jpeg gif webp avif heic svg`. Paths with `..`, absolute paths, backslashes, dot-files, or symlinks leaving `SPACE_DIR` are rejected.
+
+## API
+
+All routes require `Authorization: Bearer <token>`. Page names are paths without `.md`.
+
+| Method and path | Purpose |
+| --- | --- |
+| `GET /api/v1/search?q=&limit=` | full-text search |
+| `GET /api/v1/pages?prefix=` | list pages |
+| `GET /api/v1/pages/<path>` | `{content, frontmatter, hash, mtime}` |
+| `PUT /api/v1/pages/<path>` | `{content, base_hash?}`; stale `base_hash` → **409** with `current`; `base_hash: ""` = must not exist |
+| `POST /api/v1/pages/<path>` | `{content}` append |
+| `DELETE /api/v1/pages/<path>` | delete |
+| `GET /api/v1/tags`, `GET /api/v1/tags/<name>` | tags, pages by tag |
+| `GET /api/v1/backlinks/<path>` | backlinks |
+| `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
+
+MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `upload_attachment`.
+
+```sh
+claude mcp add --transport http folio https://folio.example.org/mcp --header "Authorization: Bearer $FOLIO_API_TOKEN"
+```
+
+## Token rotation
+
+1. Generate a new token: `openssl rand -base64 32`; store it in your password manager.
+2. Put it into `.env` as `FOLIO_API_TOKEN`.
+3. `docker compose up -d folio` (recreates the container; the web UI is unaffected).
+4. Update the clients (agent runtimes, `claude mcp add … --header`). The old token stops working immediately.
+
+## Stop
+
+`docker compose stop` (keep containers), `docker compose down` (remove containers; `space/` is a bind mount and is never touched), `docker compose down -v` also drops the diagram cache volume.
+
+## Develop and test
+
+```sh
+npm ci
+npm test            # vitest: renderer, index, polling, conflicts, path safety, auth, MCP
+npm run build
+```
+
+Test fixtures live in `test/fixtures/space` (synthetic; no real content). Notes:
+
+- Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
+- The web UI has no login of its own; put it behind SSO. `/_ui/*` state-changing calls additionally require a same-origin `Origin` header.
+- Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).

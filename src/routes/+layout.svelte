@@ -1,0 +1,135 @@
+<script lang="ts">
+	import '../app.css';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+	import { page } from '$app/state';
+	import Panel from '#lib/components/Panel.svelte';
+	import Switcher from '#lib/components/Switcher.svelte';
+	import Tree from '#lib/components/Tree.svelte';
+	import { ui, visit } from '#lib/ui.svelte';
+	import { onMount } from 'svelte';
+
+	let { data, children } = $props();
+
+	const current = $derived(page.data.name ?? '');
+	const view = $derived(page.data.kind === 'page' ? page.data.view : null);
+	const editing = $derived(!!ui.editor);
+	let treeOpen = $state(true);
+
+	// breadcrumbs: every folder links to its namespace listing
+	const crumbs = $derived.by(() => {
+		const p: string = page.data.name ?? page.data.prefix ?? '';
+		const parts = p ? p.split('/') : [];
+		return parts.map((name, i) => ({
+			name,
+			href: i === parts.length - 1 && page.data.kind === 'page' ? null : `/ns/${encodeURI(parts.slice(0, i + 1).join('/'))}`
+		}));
+	});
+
+	onMount(() => {
+		treeOpen = localStorage.getItem('folio.tree') !== '0';
+		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+	});
+	afterNavigate(() => {
+		ui.sheet = false;
+		if (page.data.kind === 'page' && page.data.name) visit(page.data.name);
+	});
+	beforeNavigate(({ cancel, to, willUnload }) => {
+		if (ui.editor?.dirty && !willUnload && !confirm('Discard unsaved changes?')) cancel();
+		else if (willUnload && ui.editor?.dirty) cancel();
+	});
+
+	function toggleTree() {
+		treeOpen = !treeOpen;
+		localStorage.setItem('folio.tree', treeOpen ? '1' : '0');
+	}
+
+	function typing(t: EventTarget | null) {
+		const el = t as HTMLElement | null;
+		return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
+	}
+
+	function onkey(e: KeyboardEvent) {
+		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+			e.preventDefault();
+			ui.switcher = ui.switcher ? null : 'switch';
+		} else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+			e.preventDefault();
+			ui.editor?.save();
+		} else if (e.key === 'e' && !e.metaKey && !e.ctrlKey && !e.altKey && !typing(e.target) && view && !ui.editor) {
+			e.preventDefault();
+			goto(`/${encodeURI(view.path)}?edit=1`);
+		} else if (e.key === 'Escape' && ui.sheet) ui.sheet = false;
+		else if (e.key === 'Escape' && ui.editor && !ui.switcher && !typing(e.target)) ui.editor.exit();
+	}
+
+	function back() {
+		if (ui.editor) ui.editor.exit();
+		else if (history.length > 1) history.back();
+		else goto('/');
+	}
+</script>
+
+<svelte:window onkeydown={onkey} />
+
+<div class="app" class:tree-closed={!treeOpen} class:editing class:kb={ui.editor?.focused}>
+	<header class="top">
+		<button class="icon" onclick={toggleTree} aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
+		<a class="brand" href="/">folio</a>
+		<nav class="crumbs" aria-label="Breadcrumbs">
+			{#each crumbs as c, i}
+				{#if i > 0}<span class="sep">/</span>{/if}
+				{#if c.href}<a href={c.href}>{c.name}</a>{:else}<span class="here">{c.name}</span>{/if}
+			{/each}
+		</nav>
+		<button class="btn small" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)">Search <kbd>⌘K</kbd></button>
+		{#if view && !editing}<a class="btn small" href="/{encodeURI(view.path)}?edit=1" title="Edit (e)">Edit</a>{/if}
+		{#if editing}
+			<button class="btn small primary" onclick={() => ui.editor?.save()} disabled={ui.editor?.saving}>{ui.editor?.saving ? 'Saving…' : 'Save'}</button>
+			<button class="btn small" onclick={() => ui.editor?.exit()}>Read</button>
+		{/if}
+	</header>
+
+	<aside class="left">
+		<Tree nodes={data.tree} {current} />
+		<h3>Recent</h3>
+		<ul class="recent">
+			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}">{r.path}</a></li>{/each}
+		</ul>
+		<h3>Tags</h3>
+		<p class="taglist">
+			{#each data.tags as t (t.name)}<a class="tag" href="/tag/{encodeURI(t.name)}">#{t.name}</a>{/each}
+		</p>
+	</aside>
+
+	<main>{@render children()}</main>
+
+	<aside class="right">
+		{#if view}<Panel {view} />{/if}
+	</aside>
+
+	<nav class="bar" aria-label="Primary">
+		<button onclick={back}><span>←</span>Back</button>
+		<button onclick={() => (ui.switcher = 'switch')}><span>⌕</span>Search</button>
+		<button onclick={() => (ui.switcher = 'new')}><span>＋</span>New</button>
+		{#if editing}
+			<button onclick={() => ui.editor?.save()} class="primary"><span>✓</span>{ui.editor?.saving ? '…' : 'Save'}</button>
+		{:else if view}
+			<a href="/{encodeURI(view.path)}?edit=1" class="barlink"><span>✎</span>Edit</a>
+		{:else}
+			<button disabled><span>✎</span>Edit</button>
+		{/if}
+		<button onclick={() => (ui.sheet = true)} disabled={!view}><span>⋯</span>More</button>
+	</nav>
+
+	{#if ui.sheet && view}
+		<div class="overlay sheet-bg" role="presentation" onclick={() => (ui.sheet = false)}>
+			<div class="sheet" role="dialog" aria-label="More" tabindex="-1" onclick={(e) => e.stopPropagation()}>
+				<div class="grip"></div>
+				<Panel {view} onnavigate={() => (ui.sheet = false)} />
+			</div>
+		</div>
+	{/if}
+
+	<Switcher />
+	{#if ui.toast}<div class="toast" role="status">{ui.toast}</div>{/if}
+</div>
