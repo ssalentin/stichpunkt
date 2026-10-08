@@ -236,6 +236,23 @@ export class SpaceIndex {
 		return [...out];
 	}
 
+	/** Categories from the `tag.define` entries in CONFIG, in CONFIG order. */
+	categories(): { tag: string; label: string; page: string; count: number; hue: number }[] {
+		return [...this.tagPageMap.entries()].map(([tag, page]) => ({
+			tag,
+			label: page,
+			page,
+			count: this.noteTagged(tag).length,
+			hue: hueOf(tag)
+		}));
+	}
+
+	/** Notes carrying `tag`, not counting hidden pages or the category's own start page. */
+	noteTagged(tag: string): PageRec[] {
+		const page = this.tagPageMap.get(tag)?.toLowerCase();
+		return this.pagesByTag(tag).filter((p) => p.path.toLowerCase() !== page);
+	}
+
 	tagPageFor(tag: string): string | undefined {
 		return this.tagPageMap.get(tag);
 	}
@@ -295,4 +312,13 @@ export function parseTagPages(raw: string): Map<string, string> {
 		if (name && page) out.set(name.toLowerCase(), page);
 	}
 	return out;
+}
+
+export const HUES = 8;
+
+/** Stable palette slot (0..7) for a tag. */
+export function hueOf(tag: string): number {
+	let h = 0;
+	for (const ch of tag) h = (h * 31 + ch.codePointAt(0)!) >>> 0;
+	return h % HUES;
 }

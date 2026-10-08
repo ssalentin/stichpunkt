@@ -1,7 +1,8 @@
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
-import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type Rendered } from './markdown';
+import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type Rendered, type Widget } from './markdown';
+import { renderWidget } from './widgets';
 import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
 import { hashOf, Store } from './store';
@@ -30,6 +31,8 @@ export interface TreeNode {
 interface CacheEntry {
 	hash: string;
 	setVersion: number;
+	/** index generation for pages with widgets (their output depends on other pages), else 0 */
+	version: number;
 	rendered: Rendered;
 }
 
@@ -161,7 +164,12 @@ export class Mdwiki {
 		const rec = this.index.get(name);
 		if (!rec) return null;
 		let entry = this.htmlCache.get(name);
-		if (!entry || entry.hash !== rec.hash || entry.setVersion !== this.index.setVersion) {
+		if (
+			!entry ||
+			entry.hash !== rec.hash ||
+			entry.setVersion !== this.index.setVersion ||
+			(entry.rendered.widgets.length > 0 && entry.version !== this.index.version)
+		) {
 			const file = await this.store.read(pageToFile(name));
 			if (!file) return null;
 			const raw = file.data.toString('utf8');
@@ -172,15 +180,23 @@ export class Mdwiki {
 				lineOffset: fm.lineOffset,
 				resolve: (t) => this.index.resolve(t, name)
 			});
-			const { html, failed } = await this.fillDiagrams(rendered.html, rendered.jobs);
+			const withWidgets = this.fillWidgets(rendered.html, rendered.widgets, name);
+			const { html, failed } = await this.fillDiagrams(withWidgets, rendered.jobs);
 			const done = { ...rendered, html };
-			entry = { hash: hashOf(file.data), setVersion: this.index.setVersion, rendered: done };
+			entry = {
+				hash: hashOf(file.data),
+				setVersion: this.index.setVersion,
+				version: rendered.widgets.length ? this.index.version : 0,
+				rendered: done
+			};
 			if (!failed) {
 				this.htmlCache.set(name, entry);
 				if (this.htmlCache.size > 500) this.htmlCache.delete(this.htmlCache.keys().next().value!);
 			}
 		}
-		const tagLists = this.index.tagsForPage(name).map((tag) => ({
+		// a kb.recent widget already lists the tagged pages: do not append the automatic list as well
+		const hasRecent = entry.rendered.widgets.some((w) => w.kind === 'recent');
+		const tagLists = (hasRecent ? [] : this.index.tagsForPage(name)).map((tag) => ({
 			tag,
 			pages: this.index
 				.pagesByTag(tag)
@@ -200,6 +216,14 @@ export class Mdwiki {
 			backlinks: this.index.backlinks(name),
 			tagLists
 		};
+	}
+
+	private fillWidgets(html: string, widgets: Widget[], self: string): string {
+		if (!widgets.length) return html;
+		const out = widgets.map((w) => renderWidget(w, this.index, self));
+		return html
+			.replace(/<p><!--widget:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
+			.replace(/<!--widget:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
 	private async fillDiagrams(html: string, jobs: KrokiJob[]): Promise<{ html: string; failed: boolean }> {

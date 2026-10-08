@@ -102,8 +102,50 @@ export interface RenderEnv {
 	tags?: Set<string>;
 	headings?: { level: number; text: string; slug: string }[];
 	jobs?: KrokiJob[];
+	widgets?: Widget[];
 	usedClient?: Set<string>;
 	slugs?: Map<string, number>;
+}
+
+
+export type Widget =
+	| { kind: 'section'; tag: string }
+	| { kind: 'recent'; tag: string; limit: number }
+	| { kind: 'header' }
+	| { kind: 'categories' };
+
+const STR = `(?:"([^"\\\\]*)"|'([^'\\\\]*)')`;
+const SP = '\\s*';
+const first = (m: RegExpExecArray, a: number, b: number) => m[a] ?? m[b];
+
+/**
+ * Recognises exactly the four SilverBullet helper calls the knowledge base uses and nothing else.
+ * No Lua is parsed beyond these patterns; anything that does not match stays an inert chip.
+ */
+export function matchWidget(content: string): Widget | null {
+	const inner = content.slice(2, -1).trim();
+	let m: RegExpExecArray | null;
+	const safe = (body: string) =>
+		new RegExp(`^\\(${SP}kb${SP}and${SP}kb\\.safe\\(${SP}${STR}${SP},${SP}${body}${SP}\\)${SP}\\)${SP}or${SP}${STR}$`);
+	if ((m = new RegExp(`^kb\\.section\\(${SP}${STR}${SP}\\)$`).exec(inner))) {
+		return { kind: 'section', tag: first(m, 1, 2).toLowerCase() };
+	}
+	const recentCall = `kb\\.recent\\(${SP}${STR}${SP}(?:,${SP}(\\d{1,4})${SP})?\\)`;
+	if ((m = new RegExp(`^${recentCall}$`).exec(inner)) || (m = safe(`function\\(\\)${SP}return${SP}${recentCall}${SP}end`).exec(inner))) {
+		return recentFrom(m, inner);
+	}
+	if (/^kb\.header\(\s*\)$/.test(inner) || safe('kb\\.header').test(inner)) return { kind: 'header' };
+	if (/^kb\.categories\(\s*\)$/.test(inner) || safe('kb\\.categories').test(inner)) return { kind: 'categories' };
+	return null;
+}
+
+function recentFrom(m: RegExpExecArray, inner: string): Widget {
+	// bare form has 3 groups (dq, sq, limit); the kb.safe form has label(2) + 3 + fallback(2)
+	const bare = !inner.startsWith('(');
+	const g = bare ? 1 : 3;
+	const tag = (m[g] ?? m[g + 1]).toLowerCase();
+	const limit = Number(m[g + 2] ?? 200);
+	return { kind: 'recent', tag, limit: Math.min(Math.max(limit, 1), 1000) };
 }
 
 const escapeHtml = (s: string) => MarkdownIt().utils.escapeHtml(s);
@@ -318,8 +360,17 @@ export function createMarkdown() {
 		return `<a class="tag" href="/tag/${encodeURI(name)}">#${escapeHtml(name)}</a>`;
 	};
 
-	r.expr_chip = (tokens, idx) =>
-		`<span class="chip inert" title="${escapeHtml(tokens[idx].content)}">&#402; expression (not executed)</span>`;
+	r.expr_chip = (tokens, idx, _o, env: any) => {
+		const w = matchWidget(tokens[idx].content);
+		if (w) {
+			const list = (env.widgets ??= []);
+			list.push(w);
+			return `<!--widget:${list.length - 1}-->`;
+		}
+		return chipHtml(tokens[idx].content);
+	};
+	const chipHtml = (content: string) =>
+		`<span class="chip inert" title="${escapeHtml(content)}">&#402; expression (not executed)</span>`;
 
 	r.math = (tokens, idx, _o, env: any) => {
 		(env.usedClient ??= new Set()).add('katex');
@@ -499,6 +550,7 @@ export function analyze(raw: string): Analysis {
 export interface Rendered {
 	html: string;
 	jobs: KrokiJob[];
+	widgets: Widget[];
 	usedClient: string[];
 	headings: { level: number; text: string; slug: string }[];
 }
@@ -508,6 +560,7 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 	return {
 		html,
 		jobs: env.jobs ?? [],
+		widgets: env.widgets ?? [],
 		usedClient: [...(env.usedClient ?? [])],
 		headings: env.headings ?? []
 	};

@@ -263,3 +263,25 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 	.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-type, .hljs-name { color: #7b3fb5; }
 	.hljs-string, .hljs-title, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #1d7a3a; }
 }
+
+/* ---- built-in widgets (replace the SilverBullet kb.* helpers) ---- */
+.wg { --hue: var(--accent); background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--hue); border-radius: 8px; padding: 0.55rem 0.8rem; margin: 0.8rem 0; font-family: var(--mono); font-size: 0.85rem; }
+.wg.hue-0 { --hue: #5cc8a8; } .wg.hue-1 { --hue: #6cb6ff; } .wg.hue-2 { --hue: #e3b778; } .wg.hue-3 { --hue: #c792ea; }
+.wg.hue-4 { --hue: #f07178; } .wg.hue-5 { --hue: #89ddff; } .wg.hue-6 { --hue: #a5d66f; } .wg.hue-7 { --hue: #ff9e64; }
+.wg-section { display: flex; align-items: center; flex-wrap: wrap; gap: 0.6rem; }
+.wg-badge { display: inline-grid; place-items: center; width: 1.9rem; height: 1.9rem; border-radius: 6px; background: var(--hue); color: #0b0f14; font-weight: 700; flex: none; }
+.wg-label { font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.wg-meta { color: var(--muted); }
+.wg-home { margin-left: auto; }
+.wg-warn { color: var(--code); background: color-mix(in srgb, var(--code) 14%, transparent); border-radius: 999px; padding: 0.1rem 0.6rem; }
+.wg-list ul { list-style: none; margin: 0; padding: 0; }
+.wg-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border); }
+.wg-list li:last-child { border-bottom: 0; }
+.wg-list li a { overflow-wrap: anywhere; }
+.wg-date { color: var(--muted); white-space: nowrap; }
+.wg-status { color: var(--muted); }
+.wg-status strong { color: var(--fg); }
+.wg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr)); gap: 0.6rem; margin: 0.8rem 0; }
+.wg-card { min-width: 0; display: flex; align-items: center; gap: 0.6rem; margin: 0; color: var(--fg); }
+.wg-card:hover { text-decoration: none; border-color: var(--hue); }
+.wg-card .wg-meta { margin-left: auto; }

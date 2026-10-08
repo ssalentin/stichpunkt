@@ -9,6 +9,7 @@ SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki co
 - Directory of markdown files, folders are namespaces (`Server/SilverBullet.md` is page `Server/SilverBullet`). `Library/` is hidden from navigation.
 - Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code.
 - SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
+- SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). Nothing is evaluated; any other `${...}` stays an inert chip.
 - Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
 - Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs. Task checkboxes are shown disabled.
 - **Read-only web UI**: no editor, task toggling, upload or delete in the browser; `/_ui/*` answers 405 to every non-GET. Changes are made only by agents writing through MCP (`write_page`, `append_to_page`, `delete_page`, `upload_attachment`) or the equivalent token-protected REST API.

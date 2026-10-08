@@ -5,7 +5,7 @@ tags: [feature, compat]
 
 These constructs come from SilverBullet. They render as muted, inert chips and are never executed.
 
-An expression: ${1 + 1} sits inline.
+An expression that mdwiki does not know: ${1 + 1} sits inline as a chip. See [[Features/Expressions]] for the four built-in widgets.
 
 ```space-lua
 print("this never runs")

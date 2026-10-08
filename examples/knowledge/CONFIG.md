@@ -8,7 +8,7 @@ tag.define {
   tagPage = "Projects",
 }
 tag.define {
-  name = "start",
-  tagPage = "index",
+  name = "feature",
+  tagPage = "Features",
 }
 ```

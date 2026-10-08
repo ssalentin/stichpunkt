@@ -4,6 +4,10 @@ title: Welcome
 ---
 # Welcome to mdwiki
 
+${(kb and kb.safe("Status", kb.header)) or "*Status unavailable*"}
+
+${(kb and kb.safe("Categories", kb.categories)) or "*Categories unavailable*"}
+
 This is a **generated example knowledge base** that shows every feature of the app. Nothing in it is real content.
 The app is **read only**: pages are written by agents through MCP (or the REST API), you only read here.
 
@@ -17,7 +21,8 @@ The app is **read only**: pages are written by agents through MCP (or the REST A
 6. [[Features/Navigation]]: switcher, search, breadcrumbs, outline, backlinks.
 7. [[Features/Attachments]]: images and PDFs.
 8. [[Features/MCP-and-API]]: how agents write to the wiki.
-9. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
+9. [[Features/Expressions]]: the built-in widgets that replace the SilverBullet `kb.*` helpers.
+10. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
 
 Browse the whole [[Projects]] collection, or look at the tag page for #example.
 
