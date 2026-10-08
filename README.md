@@ -1,8 +1,12 @@
-# Mdwiki
+# stichpunkt
 
 A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; the server renders pages to HTML, keeps an in-memory index, and exposes the same operations over a web UI, a REST API (`/api/v1`) and an MCP server (`/mcp`).
 
+*Punkt für Punkt.* — every thought is one point; wikilinks stitch the points into a fabric.
+
 SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki container for server-side diagrams).
+
+The display name, tagline and brand palette live in one place, `src/lib/brand.ts`; the PWA icons are the design set from the naming ticket (`static/icon*.png`, `static/icon.svg`, `static/icon-maskable.svg`, `static/wordmark.svg`). The technical working id `mdwiki` is still used for the environment variables, package and container, so the final rename stays a single change.
 
 ## Features
 
@@ -12,6 +16,9 @@ SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki co
 - SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). Nothing is evaluated; any other `${...}` stays an inert chip.
 - Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
 - Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs. Task checkboxes are shown disabled.
+- Search results are ranked cards: title, folder breadcrumb, the matching section with an anchor, a highlighted snippet, plus folder and tag facets to narrow the query (`#tag`, `in:folder`, `"phrases"`). The empty state offers the recently changed pages.
+- Diagrams appear in place: client renderers (Mermaid, Vega-Lite, KaTeX) start fetching as soon as the page data is known, and the raw source is never shown first — a placeholder shimmer holds the space until the figure is ready. Server-rendered Kroki figures are unaffected.
+- Frontmatter properties are not printed above the article; they live in the right rail on desktop and in the “More” sheet on mobile, next to outline, backlinks and tags.
 - **Read-only web UI**: no editor, task toggling, upload or delete in the browser; `/_ui/*` answers 405 to every non-GET. Changes are made only by agents writing through MCP (`write_page`, `append_to_page`, `delete_page`, `upload_attachment`) or the equivalent token-protected REST API.
 - Diagrams behind one registry (`src/lib/diagrams.ts`): Mermaid, Vega-Lite, KaTeX client-side and lazy; PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa via Kroki (SVG cached by hash). Broken diagrams show the error and the source.
 - Installable PWA; service worker caches the shell and the last ~50 visited pages for offline reading. Editing needs a connection.
@@ -67,7 +74,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `upload_attachment`.
 
 ```sh
-claude mcp add --transport http mdwiki https://mdwiki.example.org/mcp --header "Authorization: Bearer $MDWIKI_API_TOKEN"
+claude mcp add --transport http stichpunkt https://stichpunkt.example.org/mcp --header "Authorization: Bearer $MDWIKI_API_TOKEN"
 ```
 
 ## Token rotation

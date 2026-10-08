@@ -22,7 +22,8 @@ The app is **read only**: pages are written by agents through MCP (or the REST A
 7. [[Features/Attachments]]: images and PDFs.
 8. [[Features/MCP-and-API]]: how agents write to the wiki.
 9. [[Features/Expressions]]: the built-in widgets that replace the SilverBullet `kb.*` helpers.
-10. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
+10. [[Features/Search]]: ranked cards, facets and query filters.
+11. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
 
 Browse the whole [[Projects]] collection, or look at the tag page for #example.
 
