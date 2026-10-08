@@ -1,7 +1,7 @@
-# Sample stack: folio + kroki on an internal network. Adapt labels/volumes to your proxy.
-# Copy .env.example to .env and fill FOLIO_API_TOKEN before `docker compose up -d`.
+# Sample stack: mdwiki + kroki on an internal network. Adapt labels/volumes to your proxy.
+# Copy .env.example to .env and fill MDWIKI_API_TOKEN before `docker compose up -d`.
 services:
-  folio:
+  mdwiki:
     build: .
     restart: unless-stopped
     env_file: .env
@@ -10,11 +10,16 @@ services:
       KROKI_URL: http://kroki:8000
     volumes:
       - ./space:/space          # the markdown directory (read-write)
-      - folio-cache:/cache      # rendered diagram SVGs (safe to delete)
+      - mdwiki-cache:/cache      # rendered diagram SVGs (safe to delete)
     networks: [internal, web]
     # Traefik: route the UI through Authelia forwardAuth, and /mcp + /api on a
     # separate router WITHOUT Authelia (they are protected by the bearer token).
     # labels: [...]
+    #   - UI router (Authelia forwardAuth): must NOT set X-Mdwiki-Zone.
+    #   - Token router (PathPrefix /mcp, /api): add a `headers` middleware with
+    #       customRequestHeaders.X-Mdwiki-Zone=machine
+    #     (it overwrites anything the client sent). The app then demands the bearer
+    #     token for every path on that router, not only /api and /mcp.
 
   kroki:
     # Core image only (PlantUML, C4, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa).
@@ -24,7 +29,7 @@ services:
     networks: [internal]          # never exposed to the internet
 
 volumes:
-  folio-cache:
+  mdwiki-cache:
 
 networks:
   internal:

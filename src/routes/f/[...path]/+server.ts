@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import { FolioError } from '#lib/server/errors';
+import { MdwikiError } from '#lib/server/errors';
 import { assertAllowedExtension, extOf, normalizeRel } from '#lib/server/paths';
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
 const TYPES: Record<string, string> = {
@@ -18,12 +18,12 @@ export const GET: RequestHandler = async ({ params, request }) => {
 		rel = normalizeRel(params.path);
 		assertAllowedExtension(rel);
 	} catch (e) {
-		error(e instanceof FolioError ? e.status : 400, 'Bad path');
+		error(e instanceof MdwikiError ? e.status : 400, 'Bad path');
 	}
-	const folio = await getFolio();
+	const mdwiki = await getMdwiki();
 	let file;
 	try {
-		file = await folio.store.read(rel);
+		file = await mdwiki.store.read(rel);
 	} catch {
 		error(400, 'Bad path');
 	}

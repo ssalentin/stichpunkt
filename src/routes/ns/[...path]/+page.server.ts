@@ -1,8 +1,8 @@
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
-	const folio = await getFolio();
+	const mdwiki = await getMdwiki();
 	const prefix = params.path.replace(/\/+$/, '');
-	return { prefix, pages: folio.namespace(prefix), exists: !!folio.index.get(prefix) };
+	return { prefix, pages: mdwiki.namespace(prefix), exists: !!mdwiki.index.get(prefix) };
 };

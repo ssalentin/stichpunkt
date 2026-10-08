@@ -1,6 +1,6 @@
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
 import { buildMcpServer } from '#lib/server/mcp';
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
 const notAllowed = () =>
@@ -11,8 +11,8 @@ const notAllowed = () =>
 
 /** Stateless Streamable HTTP: a fresh server + transport per request, JSON responses. */
 export const POST: RequestHandler = async ({ request }) => {
-	const folio = await getFolio();
-	const server = buildMcpServer(folio);
+	const mdwiki = await getMdwiki();
+	const server = buildMcpServer(mdwiki);
 	const transport = new WebStandardStreamableHTTPServerTransport({
 		sessionIdGenerator: undefined,
 		enableJsonResponse: true

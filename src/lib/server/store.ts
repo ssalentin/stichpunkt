@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { FolioError } from './errors';
+import { MdwikiError } from './errors';
 import { assertAllowedExtension, resolveInside } from './paths';
 
 export interface Limits {
@@ -71,13 +71,13 @@ export class Store {
 		assertAllowedExtension(rel);
 		const limit = kind === 'page' ? this.limits.maxWriteBytes : this.limits.maxUploadBytes;
 		if (data.length > limit) {
-			throw new FolioError(413, 'too_large', `Write exceeds the limit of ${limit} bytes`);
+			throw new MdwikiError(413, 'too_large', `Write exceeds the limit of ${limit} bytes`);
 		}
 		const abs = await resolveInside(this.root, rel);
 		await fs.mkdir(path.dirname(abs), { recursive: true });
 		// re-check after mkdir so freshly created directories are covered as well
 		await resolveInside(this.root, rel);
-		const tmp = path.join(path.dirname(abs), `.folio-${randomBytes(6).toString('hex')}.tmp`);
+		const tmp = path.join(path.dirname(abs), `.mdwiki-${randomBytes(6).toString('hex')}.tmp`);
 		try {
 			await fs.writeFile(tmp, data, { flag: 'wx', mode: 0o644 });
 			await fs.rename(tmp, abs);

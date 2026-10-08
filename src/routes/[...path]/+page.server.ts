@@ -1,23 +1,23 @@
 import { error } from '@sveltejs/kit';
-import { FolioError } from '#lib/server/errors';
+import { MdwikiError } from '#lib/server/errors';
 import { normalizeRel } from '#lib/server/paths';
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, url }) => {
-	const folio = await getFolio();
+	const mdwiki = await getMdwiki();
 	let name: string;
 	try {
 		name = normalizeRel(params.path.replace(/\/+$/, '').replace(/\.md$/i, ''));
 	} catch (e) {
-		error(400, e instanceof FolioError ? e.message : 'Invalid page name');
+		error(400, e instanceof MdwikiError ? e.message : 'Invalid page name');
 	}
 	const edit = url.searchParams.has('edit');
-	const view = await folio.renderPage(name);
+	const view = await mdwiki.renderPage(name);
 	if (!view) {
-		return { kind: 'missing' as const, name, edit, namespace: folio.namespace(name), view: null, raw: null };
+		return { kind: 'missing' as const, name, edit, namespace: mdwiki.namespace(name), view: null, raw: null };
 	}
-	const raw = edit ? await folio.readPage(name) : null;
+	const raw = edit ? await mdwiki.readPage(name) : null;
 	return {
 		kind: 'page' as const,
 		name,

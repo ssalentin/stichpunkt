@@ -1,5 +1,6 @@
 <script lang="ts">
 	import '../app.css';
+	import { BRAND } from '#lib/brand';
 	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import Panel from '#lib/components/Panel.svelte';
@@ -26,7 +27,7 @@
 	});
 
 	onMount(() => {
-		treeOpen = localStorage.getItem('folio.tree') !== '0';
+		treeOpen = localStorage.getItem('mdwiki.tree') !== '0';
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 	});
 	afterNavigate(() => {
@@ -40,7 +41,7 @@
 
 	function toggleTree() {
 		treeOpen = !treeOpen;
-		localStorage.setItem('folio.tree', treeOpen ? '1' : '0');
+		localStorage.setItem('mdwiki.tree', treeOpen ? '1' : '0');
 	}
 
 	function typing(t: EventTarget | null) {
@@ -74,7 +75,7 @@
 <div class="app" class:tree-closed={!treeOpen} class:editing class:kb={ui.editor?.focused}>
 	<header class="top">
 		<button class="icon" onclick={toggleTree} aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
-		<a class="brand" href="/">folio</a>
+		<a class="brand" href="/">{BRAND}</a>
 		<nav class="crumbs" aria-label="Breadcrumbs">
 			{#each crumbs as c, i}
 				{#if i > 0}<span class="sep">/</span>{/if}

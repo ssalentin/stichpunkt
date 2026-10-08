@@ -1,9 +1,9 @@
 import { error } from '@sveltejs/kit';
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ params }) => {
-	const svg = await (await getFolio()).kroki.cached(params.key);
+	const svg = await (await getMdwiki()).kroki.cached(params.key);
 	if (!svg) error(404, 'Diagram not in cache');
 	return new Response(svg, {
 		headers: {

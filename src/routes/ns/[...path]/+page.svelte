@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { BRAND } from '#lib/brand';
 	let { data } = $props();
 </script>
 
-<svelte:head><title>{data.prefix}/ · folio</title></svelte:head>
+<svelte:head><title>{data.prefix}/ · {BRAND}</title></svelte:head>
 <article class="page">
 	<h1>{data.prefix}/</h1>
 	{#if data.exists}<p><a href="/{encodeURI(data.prefix)}">Open page {data.prefix}</a></p>{/if}

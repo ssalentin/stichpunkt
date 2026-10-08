@@ -14,7 +14,7 @@ export function toast(msg: string) {
 	toastTimer = setTimeout(() => (ui.toast = ''), 3500);
 }
 
-const KEY = 'folio.recent';
+const KEY = 'mdwiki.recent';
 export function recentPages(): string[] {
 	try {
 		return JSON.parse(localStorage.getItem(KEY) ?? '[]');

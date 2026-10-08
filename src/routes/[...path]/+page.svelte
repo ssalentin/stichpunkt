@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { BRAND } from '#lib/brand';
 	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { enhance } from '#lib/client/diagrams';
 	import { api, toast } from '#lib/ui.svelte';
@@ -36,7 +37,7 @@
 	const fmt = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
 </script>
 
-<svelte:head><title>{data.name} · folio</title></svelte:head>
+<svelte:head><title>{data.name} · {BRAND}</title></svelte:head>
 
 {#if data.edit}
 	{#await import('#lib/components/Editor.svelte')}

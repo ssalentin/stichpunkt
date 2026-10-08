@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { BRAND } from '#lib/brand';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
@@ -16,7 +17,7 @@
 	}
 </script>
 
-<svelte:head><title>Search · folio</title></svelte:head>
+<svelte:head><title>Search · {BRAND}</title></svelte:head>
 <article class="page">
 	<form onsubmit={(e) => (e.preventDefault(), goto(`/search?q=${encodeURIComponent(q)}`, { keepFocus: true }))}>
 		<input class="searchbox" type="search" bind:value={q} placeholder="Search all pages" enterkeyhint="search" autocapitalize="off" />

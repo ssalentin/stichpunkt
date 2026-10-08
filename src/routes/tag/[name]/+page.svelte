@@ -1,8 +1,9 @@
 <script lang="ts">
+	import { BRAND } from '#lib/brand';
 	let { data } = $props();
 </script>
 
-<svelte:head><title>#{data.tag} · folio</title></svelte:head>
+<svelte:head><title>#{data.tag} · {BRAND}</title></svelte:head>
 <article class="page">
 	<h1>Pages tagged <span class="tag">#{data.tag}</span></h1>
 	{#if data.tagPage}<p class="muted">Collection page: <a href="/{encodeURI(data.tagPage)}">{data.tagPage}</a></p>{/if}

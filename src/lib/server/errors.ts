@@ -1,4 +1,4 @@
-export class FolioError extends Error {
+export class MdwikiError extends Error {
 	constructor(
 		public status: number,
 		public code: string,
@@ -6,6 +6,6 @@ export class FolioError extends Error {
 		public details?: Record<string, unknown>
 	) {
 		super(message);
-		this.name = 'FolioError';
+		this.name = 'MdwikiError';
 	}
 }

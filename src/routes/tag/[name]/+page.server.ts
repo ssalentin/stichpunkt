@@ -1,8 +1,8 @@
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params }) => {
-	const folio = await getFolio();
+	const mdwiki = await getMdwiki();
 	const tag = params.name.toLowerCase();
-	return { tag, pages: folio.pagesByTag(tag), tagPage: folio.index.tagPageFor(tag) ?? null };
+	return { tag, pages: mdwiki.pagesByTag(tag), tagPage: mdwiki.index.tagPageFor(tag) ?? null };
 };

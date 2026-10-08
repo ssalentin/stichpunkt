@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { FolioError } from './errors';
+import { MdwikiError } from './errors';
 
 /** Extensions that may be read, written or uploaded. Everything else is rejected. */
 export const ALLOWED_EXTENSIONS = new Set([
@@ -27,27 +27,27 @@ const MAX_PATH_LENGTH = 512;
  */
 export function normalizeRel(input: unknown): string {
 	if (typeof input !== 'string' || input.length === 0) {
-		throw new FolioError(400, 'bad_path', 'Path must be a non-empty string');
+		throw new MdwikiError(400, 'bad_path', 'Path must be a non-empty string');
 	}
-	if (input.length > MAX_PATH_LENGTH) throw new FolioError(400, 'bad_path', 'Path too long');
+	if (input.length > MAX_PATH_LENGTH) throw new MdwikiError(400, 'bad_path', 'Path too long');
 	// eslint-disable-next-line no-control-regex
 	if (/[\u0000-\u001f\u007f\\]/.test(input)) {
-		throw new FolioError(400, 'bad_path', 'Path contains control characters or backslashes');
+		throw new MdwikiError(400, 'bad_path', 'Path contains control characters or backslashes');
 	}
 	if (input.startsWith('/') || /^[A-Za-z]:/.test(input)) {
-		throw new FolioError(400, 'bad_path', 'Absolute paths are not allowed');
+		throw new MdwikiError(400, 'bad_path', 'Absolute paths are not allowed');
 	}
 	const rel = input.normalize('NFC');
 	const segments = rel.split('/');
 	for (const seg of segments) {
 		if (seg === '' || seg === '.' || seg === '..') {
-			throw new FolioError(400, 'bad_path', 'Path must not contain empty, "." or ".." segments');
+			throw new MdwikiError(400, 'bad_path', 'Path must not contain empty, "." or ".." segments');
 		}
 		if (seg.startsWith('.')) {
-			throw new FolioError(400, 'bad_path', 'Hidden files and folders are not allowed');
+			throw new MdwikiError(400, 'bad_path', 'Hidden files and folders are not allowed');
 		}
 		if (/[. ]$/.test(seg)) {
-			throw new FolioError(400, 'bad_path', 'Path segments must not end with a dot or space');
+			throw new MdwikiError(400, 'bad_path', 'Path segments must not end with a dot or space');
 		}
 	}
 	return segments.join('/');
@@ -62,7 +62,7 @@ export function extOf(rel: string): string {
 export function assertAllowedExtension(rel: string): string {
 	const ext = extOf(rel);
 	if (!ALLOWED_EXTENSIONS.has(ext)) {
-		throw new FolioError(400, 'bad_extension', `File type ".${ext}" is not allowed`);
+		throw new MdwikiError(400, 'bad_extension', `File type ".${ext}" is not allowed`);
 	}
 	return ext;
 }
@@ -88,29 +88,29 @@ function isInside(root: string, target: string): boolean {
 export async function resolveInside(root: string, rel: string): Promise<string> {
 	const realRoot = await fs.realpath(root);
 	const abs = path.join(realRoot, rel);
-	if (!isInside(realRoot, abs)) throw new FolioError(400, 'bad_path', 'Path escapes the space');
+	if (!isInside(realRoot, abs)) throw new MdwikiError(400, 'bad_path', 'Path escapes the space');
 	let probe = abs;
 	for (;;) {
 		try {
 			const real = await fs.realpath(probe);
 			if (!isInside(realRoot, real)) {
-				throw new FolioError(400, 'bad_path', 'Path escapes the space through a symlink');
+				throw new MdwikiError(400, 'bad_path', 'Path escapes the space through a symlink');
 			}
 			break;
 		} catch (e) {
-			if (e instanceof FolioError) throw e;
+			if (e instanceof MdwikiError) throw e;
 			const code = (e as NodeJS.ErrnoException).code;
 			if (code === 'ENOENT' || code === 'ENOTDIR') {
 				// realpath fails for dangling symlinks too; those must not be written through
 				const link = await fs.lstat(probe).catch(() => null);
-				if (link) throw new FolioError(400, 'bad_path', 'Dangling symlink');
+				if (link) throw new MdwikiError(400, 'bad_path', 'Dangling symlink');
 				const parent = path.dirname(probe);
-				if (parent === probe) throw new FolioError(400, 'bad_path', 'Invalid path');
+				if (parent === probe) throw new MdwikiError(400, 'bad_path', 'Invalid path');
 				probe = parent;
 				continue;
 			}
 			// ELOOP and friends: a broken or circular symlink is never acceptable
-			throw new FolioError(400, 'bad_path', 'Path cannot be resolved');
+			throw new MdwikiError(400, 'bad_path', 'Path cannot be resolved');
 		}
 	}
 	return abs;

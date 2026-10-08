@@ -1,5 +1,5 @@
-import { loadConfig, type FolioConfig } from './config';
-import { FolioError } from './errors';
+import { loadConfig, type MdwikiConfig } from './config';
+import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
 import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type Rendered } from './markdown';
 import { assertAllowedExtension, extOf, fileToPage, normalizeRel, pageToFile } from './paths';
@@ -33,13 +33,13 @@ interface CacheEntry {
 	rendered: Rendered;
 }
 
-export class Folio {
+export class Mdwiki {
 	readonly store: Store;
 	readonly index: SpaceIndex;
 	readonly kroki: KrokiClient;
 	private htmlCache = new Map<string, CacheEntry>();
 
-	constructor(readonly config: FolioConfig = loadConfig()) {
+	constructor(readonly config: MdwikiConfig = loadConfig()) {
 		this.store = new Store(config.spaceDir, {
 			maxWriteBytes: config.maxWriteBytes,
 			maxUploadBytes: config.maxUploadBytes
@@ -84,7 +84,7 @@ export class Folio {
 	async readPage(page: string) {
 		const rel = pageToFile(page);
 		const file = await this.store.read(rel);
-		if (!file) throw new FolioError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
+		if (!file) throw new MdwikiError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
 		const content = file.data.toString('utf8');
 		const fm = parseFrontmatter(content);
 		return {
@@ -100,7 +100,7 @@ export class Folio {
 
 	/** `baseHash`: undefined = overwrite blindly, "" = page must not exist, else must match. */
 	async writePage(page: string, content: unknown, baseHash?: string | null) {
-		if (typeof content !== 'string') throw new FolioError(400, 'bad_content', '"content" must be a string');
+		if (typeof content !== 'string') throw new MdwikiError(400, 'bad_content', '"content" must be a string');
 		const rel = pageToFile(page);
 		const data = Buffer.from(content, 'utf8');
 		return this.store.withLock(rel, async () => {
@@ -118,7 +118,7 @@ export class Folio {
 
 	async appendToPage(page: string, text: unknown) {
 		if (typeof text !== 'string' || text === '') {
-			throw new FolioError(400, 'bad_content', '"content" must be a non-empty string');
+			throw new MdwikiError(400, 'bad_content', '"content" must be a non-empty string');
 		}
 		const rel = pageToFile(page);
 		return this.store.withLock(rel, async () => {
@@ -137,7 +137,7 @@ export class Folio {
 		const rel = pageToFile(page);
 		return this.store.withLock(rel, async () => {
 			const removed = await this.store.remove(rel);
-			if (!removed) throw new FolioError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
+			if (!removed) throw new MdwikiError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
 			this.index.applyDelete(fileToPage(rel));
 			return { path: fileToPage(rel), deleted: true };
 		});
@@ -177,7 +177,7 @@ export class Folio {
 		const rel = pageToFile(page);
 		return this.store.withLock(rel, async () => {
 			const cur = await this.store.read(rel);
-			if (!cur) throw new FolioError(404, 'not_found', 'Page does not exist');
+			if (!cur) throw new MdwikiError(404, 'not_found', 'Page does not exist');
 			if (hashOf(cur.data) !== baseHash) throw conflict(cur);
 			const lines = cur.data.toString('utf8').split('\n');
 			const m = /^(\s*(?:[-*+]|\d+[.)])\s+\[)([ xX])(\].*)$/s.exec(lines[line] ?? '');
@@ -305,8 +305,8 @@ export function errorBlock(label: string, message: string, source: string): stri
 	);
 }
 
-function conflict(cur: { data: Buffer } | null): FolioError {
-	return new FolioError(409, 'conflict', 'The page changed since you read it', {
+function conflict(cur: { data: Buffer } | null): MdwikiError {
+	return new MdwikiError(409, 'conflict', 'The page changed since you read it', {
 		current: cur ? { content: cur.data.toString('utf8'), hash: hashOf(cur.data) } : null
 	});
 }
@@ -322,10 +322,10 @@ function clamp(n: number, lo: number, hi: number): number {
 
 // ---- process-wide singleton ------------------------------------------------------------
 
-let instance: Promise<Folio> | null = null;
+let instance: Promise<Mdwiki> | null = null;
 
-export function getFolio(): Promise<Folio> {
-	instance ??= new Folio().start().catch((e) => {
+export function getMdwiki(): Promise<Mdwiki> {
+	instance ??= new Mdwiki().start().catch((e) => {
 		instance = null;
 		throw e;
 	});

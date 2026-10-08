@@ -1,4 +1,4 @@
-# Folio
+# Mdwiki
 
 A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; the server renders pages to HTML, keeps an in-memory index, and exposes the same operations over a web UI, a REST API (`/api/v1`) and an MCP server (`/mcp`).
 
@@ -18,21 +18,25 @@ SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki co
 ## Run
 
 ```sh
-cp .env.example .env            # set FOLIO_API_TOKEN (openssl rand -base64 32)
+cp .env.example .env            # set MDWIKI_API_TOKEN (openssl rand -base64 32)
 mkdir space                      # or copy your markdown directory here
 docker compose up -d --build
 ```
 
 The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` and its CSRF check rejects uploads on plain HTTP.
 
-Without Docker: `npm ci && npm run build && SPACE_DIR=./space FOLIO_API_TOKEN=… node build/index.js`.
+Without Docker: `npm ci && npm run build && SPACE_DIR=./space MDWIKI_API_TOKEN=… node build/index.js`.
+
+### Reverse-proxy contract (important)
+
+The web UI has no login; the proxy router for the UI must authenticate (e.g. Authelia). The router for `/mcp` and `/api` is protected by the bearer token and **must set the request header `X-Mdwiki-Zone: machine`** (Traefik: a `headers` middleware with `customRequestHeaders`, which overwrites any client-supplied value). The app then requires the token for *every* path on requests carrying that header. This closes path tricks like `/api/%2e%2e/_ui/page` (the URL parser turns `%2e%2e` into `..`, so a proxy matching the raw path `/api` could otherwise forward a request that the app sees as `/_ui/page`). The UI router must never set the header; a client adding it there only makes its own request stricter.
 
 ## Configuration
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
-| `FOLIO_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **empty = both always answer 401** |
+| `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **empty = both always answer 401** |
 | `KROKI_URL` | empty | internal Kroki base URL; empty disables server-side diagrams (they show an error block) |
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
@@ -62,14 +66,14 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `upload_attachment`.
 
 ```sh
-claude mcp add --transport http folio https://folio.example.org/mcp --header "Authorization: Bearer $FOLIO_API_TOKEN"
+claude mcp add --transport http mdwiki https://mdwiki.example.org/mcp --header "Authorization: Bearer $MDWIKI_API_TOKEN"
 ```
 
 ## Token rotation
 
 1. Generate a new token: `openssl rand -base64 32`; store it in your password manager.
-2. Put it into `.env` as `FOLIO_API_TOKEN`.
-3. `docker compose up -d folio` (recreates the container; the web UI is unaffected).
+2. Put it into `.env` as `MDWIKI_API_TOKEN`.
+3. `docker compose up -d mdwiki` (recreates the container; the web UI is unaffected).
 4. Update the clients (agent runtimes, `claude mcp add … --header`). The old token stops working immediately.
 
 ## Stop

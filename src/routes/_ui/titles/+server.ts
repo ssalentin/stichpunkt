@@ -1,5 +1,5 @@
 import { json } from '@sveltejs/kit';
-import { getFolio } from '#lib/server/service';
+import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
-export const GET: RequestHandler = async () => json((await getFolio()).titles(), { headers: { 'cache-control': 'no-store' } });
+export const GET: RequestHandler = async () => json((await getMdwiki()).titles(), { headers: { 'cache-control': 'no-store' } });

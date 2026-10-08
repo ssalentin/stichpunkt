@@ -273,7 +273,7 @@ export function createMarkdown() {
 	});
 
 	// collect headings (with unique slugs) and task checkboxes
-	md.core.ruler.push('folio_post', (state) => {
+	md.core.ruler.push('mdwiki_post', (state) => {
 		const env = state.env as RenderEnv;
 		env.headings = [];
 		env.slugs = new Map();

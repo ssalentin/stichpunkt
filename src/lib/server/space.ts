@@ -51,7 +51,7 @@ export class SpaceIndex {
 	startPolling(intervalMs: number): void {
 		this.stopPolling();
 		this.timer = setInterval(() => {
-			this.refresh().catch((e) => console.error('[folio] poll failed:', e));
+			this.refresh().catch((e) => console.error('[mdwiki] poll failed:', e));
 		}, intervalMs);
 		this.timer.unref();
 	}

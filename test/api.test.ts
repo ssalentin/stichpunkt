@@ -6,11 +6,11 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handle } from '../src/hooks.server';
 import { buildMcpServer } from '../src/lib/server/mcp';
-import { makeFolio } from './helpers';
+import { makeMdwiki } from './helpers';
 
 const TOKEN = 'test-token';
 let dir: string;
-let folio: Awaited<ReturnType<typeof makeFolio>>['folio'];
+let mdwiki: Awaited<ReturnType<typeof makeMdwiki>>['mdwiki'];
 let outside: string;
 
 // route handlers talk to the process-wide singleton, so point it at a temp space first
@@ -20,15 +20,15 @@ let attachRoute: typeof import('../src/routes/api/v1/attachments/[...path]/+serv
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 
 beforeAll(async () => {
-	const made = await makeFolio();
+	const made = await makeMdwiki();
 	dir = made.dir;
-	folio = made.folio;
-	outside = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-outside-'));
+	mdwiki = made.mdwiki;
+	outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mdwiki-outside-'));
 	fs.writeFileSync(path.join(outside, 'secret.md'), 'top secret');
 	process.env.SPACE_DIR = dir;
 	process.env.CACHE_DIR = made.cache;
 	process.env.KROKI_URL = '';
-	process.env.FOLIO_API_TOKEN = TOKEN;
+	process.env.MDWIKI_API_TOKEN = TOKEN;
 	process.env.MAX_WRITE_BYTES = '2000';
 	process.env.MAX_UPLOAD_BYTES = '5000';
 	pagesRoute = await import('../src/routes/api/v1/pages/[...path]/+server');
@@ -37,10 +37,10 @@ beforeAll(async () => {
 	mcpRoute = await import('../src/routes/mcp/+server');
 	const svc = await import('../src/lib/server/service');
 	// the singleton must stop polling when tests end
-	afterAll(async () => (await svc.getFolio()).stop());
-	const s = await svc.getFolio();
-	folio.stop();
-	folio = s;
+	afterAll(async () => (await svc.getMdwiki()).stop());
+	const s = await svc.getMdwiki();
+	mdwiki.stop();
+	mdwiki = s;
 });
 
 const req = (method: string, url: string, body?: unknown, headers: Record<string, string> = {}) =>
@@ -85,6 +85,21 @@ describe('auth gate (hooks.server)', () => {
 		expect(r).toEqual({ status: 401, reached: false });
 	});
 
+	it('requires the token for every path when the proxy marked the request as machine-zone', async () => {
+		const zone = { 'x-mdwiki-zone': 'machine' };
+		for (const url of ['/', '/Familie', '/_ui/page', '/_ui/titles', '/api/%2e%2e/_ui/page', '/tag/x', '/f/a.png']) {
+			expect(await run('PUT', url, { ...zone, origin: 'http://localhost' }), url).toEqual({ status: 401, reached: false });
+			expect(await run('GET', url, zone), url).toEqual({ status: 401, reached: false });
+		}
+		expect(await run('GET', '/Familie', { ...zone, authorization: `Bearer ${TOKEN}` })).toEqual({ status: 200, reached: true });
+		// without the marker the UI stays open (Authelia router)
+		expect(await run('GET', '/Familie')).toEqual({ status: 200, reached: true });
+	});
+
+	it('detects the encoded-dot-segment bypass at the URL level', () => {
+		expect(new URL('http://localhost/api/%2e%2e/_ui/page').pathname).toBe('/_ui/page');
+	});
+
 	it('rejects a wrong token and a malformed header', async () => {
 		expect((await run('GET', '/api/v1/pages', { authorization: 'Bearer nope' })).status).toBe(401);
 		expect((await run('GET', '/api/v1/pages', { authorization: TOKEN })).status).toBe(401);
@@ -93,10 +108,10 @@ describe('auth gate (hooks.server)', () => {
 
 	it('lets the right token through, and fails closed when no token is configured', async () => {
 		expect(await run('GET', '/mcp', { authorization: `Bearer ${TOKEN}` })).toEqual({ status: 200, reached: true });
-		process.env.FOLIO_API_TOKEN = '';
+		process.env.MDWIKI_API_TOKEN = '';
 		expect((await run('GET', '/api/v1/pages', { authorization: 'Bearer ' })).status).toBe(401);
 		expect((await run('GET', '/api/v1/pages', { authorization: 'Bearer x' })).status).toBe(401);
-		process.env.FOLIO_API_TOKEN = TOKEN;
+		process.env.MDWIKI_API_TOKEN = TOKEN;
 	});
 
 	it('leaves the web UI open (Authelia sits in front) and checks origin on UI writes', async () => {
@@ -197,7 +212,7 @@ describe('path safety', () => {
 		fs.symlinkSync(outside, path.join(dir, 'escape'));
 		fs.symlinkSync(path.join(outside, 'secret.md'), path.join(dir, 'linked.md'));
 		fs.symlinkSync(path.join(outside, 'not-yet.md'), path.join(dir, 'dangling.md'));
-		await folio.index.refresh();
+		await mdwiki.index.refresh();
 		for (const p of ['escape/secret', 'escape/new', 'linked', 'dangling']) {
 			const w = await call(pagesRoute.PUT, req('PUT', '/x', { content: 'pwned' }), { path: p });
 			expect(w.status, `write ${p}`).toBe(400);
@@ -209,14 +224,14 @@ describe('path safety', () => {
 		expect(fs.readFileSync(path.join(outside, 'secret.md'), 'utf8')).toBe('top secret');
 		expect(fs.existsSync(path.join(outside, 'new.md'))).toBe(false);
 		expect(fs.existsSync(path.join(outside, 'not-yet.md'))).toBe(false);
-		expect(folio.search('top secret')).toEqual([]); // not indexed either
+		expect(mdwiki.search('top secret')).toEqual([]); // not indexed either
 	});
 });
 
 describe('MCP', () => {
 	async function connect() {
 		const [a, b] = InMemoryTransport.createLinkedPair();
-		await buildMcpServer(folio).connect(b);
+		await buildMcpServer(mdwiki).connect(b);
 		const client = new Client({ name: 'test', version: '1' });
 		await client.connect(a);
 		return client;
