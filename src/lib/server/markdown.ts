@@ -491,6 +491,8 @@ export interface Analysis {
 	links: WikiLink[];
 	headings: { level: number; text: string; slug: string }[];
 	text: string;
+	/** text split at headings, for section-aware search */
+	sections: { heading: string; slug: string; text: string }[];
 }
 
 function inlineText(tok: Token): string {
@@ -526,16 +528,30 @@ export function analyze(raw: string): Analysis {
 	const links: WikiLink[] = [];
 	const tags = new Set(frontmatterTags(fm.data));
 	const parts: string[] = [];
+	const headingList = env.headings ?? [];
+	const sections: { heading: string; slug: string; parts: string[] }[] = [{ heading: '', slug: '', parts: [] }];
+	let headingIdx = 0;
+	let startsSection = false;
+	const add = (text: string) => {
+		parts.push(text);
+		sections[sections.length - 1].parts.push(text);
+	};
 	for (const t of tokens) {
+		if (t.type === 'heading_open') startsSection = true;
 		if (t.type === 'inline') {
-			parts.push(inlineText(t));
+			if (startsSection) {
+				const h = headingList[headingIdx++];
+				sections.push({ heading: h?.text ?? '', slug: h?.slug ?? '', parts: [] });
+				startsSection = false;
+			}
+			add(inlineText(t));
 			for (const c of t.children ?? []) {
 				if (c.type === 'wikilink') links.push(c.meta as unknown as WikiLink);
 				else if (c.type === 'tag') tags.add(c.content);
 			}
 		} else if (t.type === 'fence' && !INERT_FENCES.has(t.info.trim().split(/\s+/)[0].toLowerCase())) {
-			parts.push(t.content);
-		} else if (t.type === 'math') parts.push(t.content);
+			add(t.content);
+		} else if (t.type === 'math') add(t.content);
 	}
 	return {
 		frontmatter: fm.data,
@@ -543,7 +559,8 @@ export function analyze(raw: string): Analysis {
 		tags: [...tags],
 		links,
 		headings: env.headings ?? [],
-		text: parts.join('\n')
+		text: parts.join('\n'),
+		sections: sections.map((x) => ({ heading: x.heading, slug: x.slug, text: x.parts.join('\n') })).filter((x) => x.text || x.heading)
 	};
 }
 

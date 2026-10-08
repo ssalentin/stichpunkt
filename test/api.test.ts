@@ -226,7 +226,7 @@ describe('path safety', () => {
 		expect(fs.readFileSync(path.join(outside, 'secret.md'), 'utf8')).toBe('top secret');
 		expect(fs.existsSync(path.join(outside, 'new.md'))).toBe(false);
 		expect(fs.existsSync(path.join(outside, 'not-yet.md'))).toBe(false);
-		expect(mdwiki.search('top secret')).toEqual([]); // not indexed either
+		expect(mdwiki.search('top secret').results).toEqual([]); // not indexed either
 	});
 });
 
@@ -259,7 +259,7 @@ describe('MCP', () => {
 		const r = await t('read_page', { path: 'Mcp/Page' });
 		expect(r.hash).toBe(w.hash);
 		expect((await t('append_to_page', { path: 'Mcp/Page', content: 'more' })).hash).not.toBe(w.hash);
-		expect((await t('search', { query: 'mcp-tag' })).map((h: { path: string }) => h.path)).toContain('Mcp/Page');
+		expect((await t('search', { query: 'mcp-tag' })).results.map((h: { path: string }) => h.path)).toContain('Mcp/Page');
 		expect((await t('list_pages', { prefix: 'Mcp' })).map((p: { path: string }) => p.path)).toEqual(['Mcp/Page']);
 		expect((await t('list_tags', {})).find((x: { name: string }) => x.name === 'mcp-tag').count).toBe(1);
 		expect((await t('pages_by_tag', { tag: 'mcp-tag' })).map((p: { path: string }) => p.path)).toEqual(['Mcp/Page']);

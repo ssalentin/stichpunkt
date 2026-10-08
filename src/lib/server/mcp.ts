@@ -37,7 +37,7 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 
 	server.registerTool(
 		'search',
-		{ description: 'Full-text search over titles and content', inputSchema: { query: z.string(), limit: z.number().int().optional() } },
+		{ description: 'Full-text search over titles, tags and content. Supports "phrases", #tag and in:folder filters. Returns ranked results with the matching section and snippet, plus folder/tag facets', inputSchema: { query: z.string(), limit: z.number().int().optional() } },
 		({ query, limit }) => run(() => mdwiki.search(query, limit ?? 30))
 	);
 	server.registerTool(

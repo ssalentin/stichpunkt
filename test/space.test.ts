@@ -45,11 +45,11 @@ describe('index', () => {
 
 	it('searches full text with snippets, titles first', async () => {
 		const { mdwiki } = await setup();
-		const hits = mdwiki.search('zebrafish');
+		const hits = mdwiki.search('zebrafish').results;
 		expect(hits.map((h) => h.path)).toEqual(['Server/Beta']);
 		expect(hits[0].snippet).toContain('zebrafish-needle');
-		expect(mdwiki.search('beta')[0].path).toBe('Server/Beta');
-		expect(mdwiki.search('print')).toEqual([]); // inert Lua is not indexed
+		expect(mdwiki.search('beta').results[0].path).toBe('Server/Beta');
+		expect(mdwiki.search('print').results).toEqual([]); // inert Lua is not indexed
 	});
 
 	it('renders unique heading slugs and keeps frontmatter out of the body', async () => {
@@ -63,19 +63,19 @@ describe('index', () => {
 describe('external changes (mtime poll)', () => {
 	it('shows a file written outside the app in search and backlinks after one poll cycle', async () => {
 		const { mdwiki, dir } = await setup({ poll: 100 });
-		expect(mdwiki.search('quokka-marker')).toEqual([]);
+		expect(mdwiki.search('quokka-marker').results).toEqual([]);
 		fs.writeFileSync(path.join(dir, 'External.md'), 'quokka-marker links to [[Server/Beta]]\n');
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('quokka-marker').map((h) => h.path)).toEqual(['External']);
+		expect(mdwiki.search('quokka-marker').results.map((h) => h.path)).toEqual(['External']);
 		expect(mdwiki.getBacklinks('Server/Beta').map((b) => b.path)).toContain('External');
 		// modification and deletion are picked up as well
 		fs.writeFileSync(path.join(dir, 'External.md'), 'axolotl-marker\n');
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('quokka-marker')).toEqual([]);
-		expect(mdwiki.search('axolotl-marker')).toHaveLength(1);
+		expect(mdwiki.search('quokka-marker').results).toEqual([]);
+		expect(mdwiki.search('axolotl-marker').results).toHaveLength(1);
 		fs.rmSync(path.join(dir, 'External.md'));
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('axolotl-marker')).toEqual([]);
+		expect(mdwiki.search('axolotl-marker').results).toEqual([]);
 	});
 });
 
@@ -87,5 +87,42 @@ describe('read-only UI', () => {
 		expect(v!.html).toContain('disabled checked');
 		expect('toggleTask' in mdwiki).toBe(false);
 		expect('uploadForPage' in mdwiki).toBe(false);
+	});
+});
+
+describe('search', () => {
+	it('ranks title hits first and reports the matching section with an anchor', async () => {
+		const { mdwiki } = await setup();
+		const r = mdwiki.search('duplicate heading');
+		expect(r.results[0]).toMatchObject({ path: 'Server/Alpha', folder: 'Server', section: { heading: 'Setup Steps', slug: 'setup-steps-1' } });
+		expect(r.results[0].snippet.toLowerCase()).toContain('duplicate heading');
+		expect(mdwiki.search('alpha').results[0].path).toBe('Server/Alpha');
+	});
+
+	it('supports "phrases", #tag and in:folder filters', async () => {
+		const { mdwiki } = await setup();
+		expect(mdwiki.search('"start things"').results.map((h) => h.path)).toEqual(['Server/Alpha']);
+		expect(mdwiki.search('"things start"').results).toEqual([]);
+		const tagged = mdwiki.search('#infra').results.map((h) => h.path);
+		expect(tagged).toEqual(['Server/Alpha']);
+		const inFolder = mdwiki.search('in:Server').results.map((h) => h.path).sort();
+		expect(inFolder).toEqual(['Server/Alpha', 'Server/Beta']);
+		expect(mdwiki.search('things in:Notes').results).toEqual([]);
+		expect(mdwiki.search('#server things').results.map((h) => h.path)).toEqual(['Server/Alpha']);
+	});
+
+	it('returns folder and tag facets over all matches', async () => {
+		const { mdwiki } = await setup();
+		const r = mdwiki.search('server', 1);
+		expect(r.total).toBeGreaterThan(1);
+		expect(r.results).toHaveLength(1);
+		expect(r.facets.folders.find((f) => f.name === 'Server')?.count).toBeGreaterThan(1);
+		expect(r.facets.tags.map((t) => t.name)).toContain('server');
+	});
+
+	it('falls back to fuzzy title matching and hides Library', async () => {
+		const { mdwiki } = await setup();
+		expect(mdwiki.search('syntx').results.map((h) => h.path)).toContain('Syntax');
+		expect(mdwiki.search('hidden library page').results).toEqual([]);
 	});
 });

@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const mdwiki = await getMdwiki();
-		return json({ results: mdwiki.search(url.searchParams.get('q') ?? '', Number(url.searchParams.get('limit') ?? 30)) });
+		return json(mdwiki.search(url.searchParams.get('q') ?? '', Number(url.searchParams.get('limit') ?? 30)));
 	} catch (e) {
 		return fail(e);
 	}

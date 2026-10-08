@@ -1,3 +1,4 @@
+import { fuzzyScore } from '../fuzzy';
 import { analyze, type WikiLink } from './markdown';
 import { fileToPage, pageToFile } from './paths';
 import { hashOf, type FileInfo, type Store } from './store';
@@ -15,13 +16,44 @@ export interface PageRec {
 	headings: { level: number; text: string; slug: string }[];
 	text: string;
 	textLower: string;
+	sections: { heading: string; slug: string; text: string; lower: string }[];
 }
 
 export interface SearchHit {
 	path: string;
 	title: string;
+	/** folder of the page ("" for root pages) */
+	folder: string;
+	tags: string[];
+	/** best matching section: heading text and anchor, empty for the page intro */
+	section: { heading: string; slug: string };
 	snippet: string;
+	/** lower-cased query terms, for highlighting */
+	terms: string[];
 	score: number;
+}
+
+export interface SearchResult {
+	query: string;
+	terms: string[];
+	filters: { tags: string[]; folders: string[] };
+	total: number;
+	results: SearchHit[];
+	facets: { folders: { name: string; count: number }[]; tags: { name: string; count: number }[] };
+}
+
+/** Splits a query into terms ("quoted phrases" stay together) and `#tag` / `in:folder` filters. */
+export function parseQuery(q: string): { terms: string[]; tags: string[]; folders: string[] } {
+	const terms: string[] = [];
+	const tags: string[] = [];
+	const folders: string[] = [];
+	for (const m of q.matchAll(/"([^"]+)"|(\S+)/g)) {
+		const raw = (m[1] ?? m[2]).toLowerCase();
+		if (m[2] && raw.startsWith('#') && raw.length > 1) tags.push(raw.slice(1));
+		else if (m[2] && raw.startsWith('in:') && raw.length > 3) folders.push(raw.slice(3).replace(/\/+$/, ''));
+		else terms.push(raw);
+	}
+	return { terms, tags, folders };
 }
 
 const HIDDEN_PREFIX = 'Library/';
@@ -116,7 +148,8 @@ export class SpaceIndex {
 			links: a.links,
 			headings: a.headings,
 			text: a.text,
-			textLower: a.text.toLowerCase()
+			textLower: a.text.toLowerCase(),
+			sections: a.sections.map((x) => ({ ...x, lower: x.text.toLowerCase() }))
 		});
 	}
 
@@ -257,36 +290,93 @@ export class SpaceIndex {
 		return this.tagPageMap.get(tag);
 	}
 
-	search(query: string, limit = 30, includeHidden = false): SearchHit[] {
-		const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-		if (!terms.length) return [];
+	search(query: string, limit = 30, includeHidden = false): SearchResult {
+		const { terms, tags, folders } = parseQuery(query);
+		const empty: SearchResult = { query, terms, filters: { tags, folders }, total: 0, results: [], facets: { folders: [], tags: [] } };
+		if (!terms.length && !tags.length && !folders.length) return empty;
 		const hits: (SearchHit & { mtimeMs: number })[] = [];
 		for (const p of this.pages.values()) {
 			if (p.hidden && !includeHidden) continue;
-			const titleLo = p.path.toLowerCase();
+			const lowPath = p.path.toLowerCase();
+			if (folders.length && !folders.every((f) => lowPath.startsWith(f + '/'))) continue;
+			if (tags.length && !tags.every((t) => p.tags.some((x) => x === t || x.startsWith(t + '/')))) continue;
+			const lowTitle = p.title.toLowerCase();
+			const lowTags = p.tags.join(' ');
 			let score = 0;
 			let ok = true;
 			for (const term of terms) {
-				const inTitle = titleLo.includes(term);
-				const idx = p.textLower.indexOf(term);
-				if (!inTitle && idx < 0) {
+				const inTitle = lowTitle.includes(term);
+				const inPath = lowPath.includes(term);
+				const inTags = lowTags.includes(term);
+				if (!inTitle && !inPath && !inTags && !p.textLower.includes(term)) {
 					ok = false;
 					break;
 				}
-				if (inTitle) score += p.title.toLowerCase().includes(term) ? 20 : 10;
-				if (idx >= 0) {
-					let count = 0;
-					for (let i = idx; i >= 0 && count < 10; i = p.textLower.indexOf(term, i + term.length)) count++;
-					score += count;
-				}
+				if (inTitle) score += lowTitle.startsWith(term) ? 45 : /(^|[\s/_-])/.test(lowTitle) && new RegExp(`(^|[\\s/_-])${escapeRe(term)}`).test(lowTitle) ? 32 : 18;
+				else if (inPath) score += 8;
+				if (inTags) score += 12;
 			}
 			if (!ok) continue;
-			hits.push({ path: p.path, title: p.title, snippet: snippet(p.text, p.textLower, terms), score, mtimeMs: p.mtimeMs });
+			// best section: most distinct terms, then most occurrences; heading hits count extra
+			let best = { heading: '', slug: '', text: '', lower: '' };
+			let bestScore = -1;
+			for (const sec of p.sections) {
+				const head = sec.heading.toLowerCase();
+				let sc = 0;
+				let distinct = 0;
+				for (const term of terms) {
+					let n = 0;
+					for (let i = sec.lower.indexOf(term); i >= 0 && n < 6; i = sec.lower.indexOf(term, i + term.length)) n++;
+					if (n) distinct++;
+					sc += Math.log2(1 + n) * 3;
+					if (head.includes(term)) sc += 10;
+				}
+				sc += distinct * 6;
+				if (sc > bestScore) ((bestScore = sc), (best = sec));
+			}
+			score += Math.max(bestScore, 0);
+			hits.push({
+				path: p.path,
+				title: p.title,
+				folder: p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : '',
+				tags: p.tags.slice(0, 5),
+				section: { heading: best.heading, slug: best.slug },
+				snippet: terms.length ? snippet(best.text || p.text, best.lower || p.textLower, terms) : p.text.slice(0, 160).replace(/\s+/g, ' ').trim(),
+				terms,
+				score,
+				mtimeMs: p.mtimeMs
+			});
+		}
+		// typo tolerance: nothing matched literally, fall back to fuzzy title/path matching
+		if (!hits.length && terms.length) {
+			const needle = terms.join(' ');
+			for (const p of this.pages.values()) {
+				if (p.hidden && !includeHidden) continue;
+				const sc = Math.max(fuzzyScore(needle, p.title), fuzzyScore(needle, p.path));
+				if (sc < 0) continue;
+				hits.push({ path: p.path, title: p.title, folder: p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/')) : '', tags: p.tags.slice(0, 5), section: { heading: '', slug: '' }, snippet: '', terms, score: sc, mtimeMs: p.mtimeMs });
+			}
 		}
 		hits.sort((a, b) => b.score - a.score || b.mtimeMs - a.mtimeMs);
-		return hits.slice(0, limit).map(({ mtimeMs: _m, ...h }) => h);
+		const folderCounts = new Map<string, number>();
+		const tagCounts = new Map<string, number>();
+		for (const h of hits) {
+			const top = h.path.includes('/') ? h.path.slice(0, h.path.indexOf('/')) : '';
+			folderCounts.set(top, (folderCounts.get(top) ?? 0) + 1);
+			for (const t of h.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+		}
+		const top = (m: Map<string, number>, n: number) =>
+			[...m.entries()].filter(([k]) => k).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, n).map(([name, count]) => ({ name, count }));
+		return {
+			...empty,
+			total: hits.length,
+			results: hits.slice(0, limit).map(({ mtimeMs: _m, ...h }) => h),
+			facets: { folders: top(folderCounts, 8), tags: top(tagCounts, 10) }
+		};
 	}
 }
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 function snippet(text: string, lower: string, terms: string[]): string {
 	let at = -1;
