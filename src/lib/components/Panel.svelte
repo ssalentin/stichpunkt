@@ -6,8 +6,12 @@
 		headings: { level: number; text: string; slug: string }[];
 		backlinks: { path: string; title: string; count: number }[];
 		tags: string[];
+		frontmatter?: Record<string, unknown>;
 	}
 	let { view, onnavigate }: { view: View; onnavigate?: () => void } = $props();
+
+	const props = $derived(Object.entries(view.frontmatter ?? {}));
+	const fmt = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
 	async function copyLink() {
 		try {
@@ -45,6 +49,17 @@
 		{#each view.tags as t}<a class="tag" href="/tag/{encodeURI(t)}" onclick={() => onnavigate?.()}>#{t}</a>{:else}<span class="muted">No tags</span>{/each}
 	</p>
 </section>
+{#if props.length}
+	<section class="props-panel">
+		<h3>Properties</h3>
+		<dl>
+			{#each props as [k, v]}
+				<dt>{k}</dt>
+				<dd>{fmt(v)}</dd>
+			{/each}
+		</dl>
+	</section>
+{/if}
 <section class="actions">
 	<h3>Page</h3>
 	<button class="btn" onclick={copyLink}>Copy [[link]]</button>

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import '../app.css';
-	import { BRAND } from '#lib/brand';
+	import { BRAND, BRAND_TAGLINE } from '#lib/brand';
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import Panel from '#lib/components/Panel.svelte';
@@ -26,7 +26,7 @@
 	});
 
 	onMount(() => {
-		treeOpen = localStorage.getItem('mdwiki.tree') !== '0';
+		treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 	});
 	afterNavigate(() => {
@@ -36,7 +36,7 @@
 
 	function toggleTree() {
 		treeOpen = !treeOpen;
-		localStorage.setItem('mdwiki.tree', treeOpen ? '1' : '0');
+		localStorage.setItem('stichpunkt.tree', treeOpen ? '1' : '0');
 	}
 
 	function typing(t: EventTarget | null) {
@@ -62,7 +62,7 @@
 <div class="app" class:tree-closed={!treeOpen}>
 	<header class="top">
 		<button class="icon" onclick={toggleTree} aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
-		<a class="brand" href="/">{BRAND}</a>
+		<a class="brand" href="/" title={BRAND_TAGLINE}>{BRAND}<span class="brand-dot">.</span></a>
 		<nav class="crumbs" aria-label="Breadcrumbs">
 			{#each crumbs as c, i}
 				{#if i > 0}<span class="sep">/</span>{/if}

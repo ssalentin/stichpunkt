@@ -12,7 +12,7 @@ export function toast(msg: string) {
 	toastTimer = setTimeout(() => (ui.toast = ''), 3500);
 }
 
-const KEY = 'mdwiki.recent';
+const KEY = 'stichpunkt.recent';
 export function recentPages(): string[] {
 	try {
 		return JSON.parse(localStorage.getItem(KEY) ?? '[]');

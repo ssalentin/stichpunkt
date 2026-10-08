@@ -1,6 +1,7 @@
 /**
  * Lazy client-side renderers, keyed by diagram id (see $lib/diagrams.ts).
- * Each loader imports its library on first use only.
+ * Each loader imports its library on first use only, and `preload` starts the
+ * fetch early so the diagram appears without showing its source first.
  */
 type Renderer = (el: HTMLElement, source: string) => Promise<void>;
 
@@ -46,6 +47,17 @@ const renderers: Record<string, Renderer> = {
 		});
 	}
 };
+
+const preloaders: Record<string, () => Promise<unknown>> = {
+	mermaid: () => import('mermaid'),
+	'vega-lite': () => import('vega-embed'),
+	katex: () => import('katex')
+};
+
+/** Starts fetching the libraries for the diagram kinds on this page, before they render. */
+export function preload(kinds: Iterable<string>): void {
+	for (const kind of kinds) void preloaders[kind]?.().catch(() => {});
+}
 
 function showError(el: HTMLElement, label: string, message: string, source: string) {
 	el.classList.add('diagram-failed');

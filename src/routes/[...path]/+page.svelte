@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { BRAND } from '#lib/brand';
 	import { afterNavigate } from '$app/navigation';
-	import { enhance } from '#lib/client/diagrams';
+	import { enhance, preload } from '#lib/client/diagrams';
 
 	let { data } = $props();
 	let article: HTMLElement | undefined = $state();
@@ -15,20 +15,15 @@
 		if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
 	});
 
-	const props = $derived(Object.entries(data.view?.frontmatter ?? {}));
-	const fmt = (v: unknown) => (typeof v === 'object' ? JSON.stringify(v) : String(v));
+	// start fetching the diagram libraries as soon as the page data is known, so the
+	// rendered figure replaces the placeholder without ever showing the source first
+	$effect.pre(() => preload(data.view?.usedClient ?? []));
 </script>
 
 <svelte:head><title>{data.name} · {BRAND}</title></svelte:head>
 
 {#if data.kind === 'page' && data.view}
 	<article class="page" bind:this={article}>
-		{#if props.length}
-			<details class="props">
-				<summary>Properties</summary>
-				<dl>{#each props as [k, v]}<dt>{k}</dt><dd>{fmt(v)}</dd>{/each}</dl>
-			</details>
-		{/if}
 		<div class="md">{@html data.view.html}</div>
 		{#each data.view.tagLists as list (list.tag)}
 			<section class="tagged">
