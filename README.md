@@ -13,7 +13,8 @@ The display name, tagline and brand palette live in one place, `src/lib/brand.ts
 - Directory of markdown files, folders are namespaces (`Server/SilverBullet.md` is page `Server/SilverBullet`). `Library/` is hidden from navigation.
 - Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code. A wikilink displays the **page name**, not the typed path — the full path stays in the tooltip — and both pages keep their folder prefix only when their names collide.
 - SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
-- SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). Nothing is evaluated; any other `${...}` stays an inert chip.
+- SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). They are presets of the same query engine as the `pages` block. Nothing is evaluated; any other `${...}` stays an inert chip.
+- **`pages` block (declarative queries)**: a fenced ```pages block with a small YAML body lists pages from the index. Filters: `tag` (one or a list, nested tags match), `folder` (path prefix, `this` = the page's folder) and `links-to` (`this` = backlinks of the page). `sort` accepts `title`, `modified`, `date` or any frontmatter key with `asc`/`desc`. `show` is `list`, `table` (with `columns`) or `count`; `limit` defaults to 50 and never exceeds 200. The body is checked against a strict schema (js-yaml CORE + zod): unknown keys or wrong types render the error with the block source. No expressions, no regex, nothing executed. The same engine is exposed as the `query_pages` MCP tool and `POST /api/v1/query`, using the same filter names as search (`#tag`, `in:folder`).
 - Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
 - Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs. Task checkboxes are shown disabled.
 - Search results are ranked cards: title, folder breadcrumb, the matching section with an anchor, a highlighted snippet, plus folder and tag facets to narrow the query (`#tag`, `in:folder`, `"phrases"`). The empty state offers the recently changed pages.
@@ -69,9 +70,10 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `DELETE /api/v1/pages/<path>` | delete |
 | `GET /api/v1/tags`, `GET /api/v1/tags/<name>` | tags, pages by tag |
 | `GET /api/v1/backlinks/<path>` | backlinks |
+| `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 
-MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `upload_attachment`.
+MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `upload_attachment`.
 
 ```sh
 claude mcp add --transport http stichpunkt https://stichpunkt.example.org/mcp --header "Authorization: Bearer $MDWIKI_API_TOKEN"

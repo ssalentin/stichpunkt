@@ -1,8 +1,9 @@
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
-import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type Rendered, type Widget } from './markdown';
+import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
+import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
 import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
 import { hashOf, Store } from './store';
@@ -80,6 +81,19 @@ export class Mdwiki {
 
 	pagesByTag(tag: string) {
 		return this.index.pagesByTag(tag).map(summary);
+	}
+
+	/**
+	 * Runs the same declarative query engine as the `pages` block. Agents can try a query here
+	 * (MCP `query_pages` / `POST /api/v1/query`) before writing it into a page.
+	 */
+	queryPages(query: unknown, self = '') {
+		try {
+			return runPagesQuery(this.index, parsePagesQuery(query), self);
+		} catch (e) {
+			if (e instanceof PagesQueryError) throw new MdwikiError(400, 'bad_query', e.message, { source: e.source });
+			throw e;
+		}
 	}
 
 	getBacklinks(page: string) {
@@ -171,7 +185,8 @@ export class Mdwiki {
 			!entry ||
 			entry.hash !== rec.hash ||
 			entry.setVersion !== this.index.setVersion ||
-			(entry.rendered.widgets.length > 0 && entry.version !== this.index.version)
+			(entry.rendered.widgets.length > 0 || entry.rendered.pagesBlocks.length > 0) &&
+			entry.version !== this.index.version
 		) {
 			const file = await this.store.read(pageToFile(name));
 			if (!file) return null;
@@ -185,12 +200,13 @@ export class Mdwiki {
 				label: (p) => this.index.displayName(p)
 			});
 			const withWidgets = this.fillWidgets(rendered.html, rendered.widgets, name);
-			const { html, failed } = await this.fillDiagrams(withWidgets, rendered.jobs);
+			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name);
+			const { html, failed } = await this.fillDiagrams(withPages, rendered.jobs);
 			const done = { ...rendered, html };
 			entry = {
 				hash: hashOf(file.data),
 				setVersion: this.index.setVersion,
-				version: rendered.widgets.length ? this.index.version : 0,
+				version: rendered.widgets.length || rendered.pagesBlocks.length ? this.index.version : 0,
 				rendered: done
 			};
 			if (!failed) {
@@ -228,6 +244,25 @@ export class Mdwiki {
 		return html
 			.replace(/<p><!--widget:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
 			.replace(/<!--widget:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
+	}
+
+	/**
+	 * Fills every `<!--pages:n-->` placeholder with the query result. An invalid block shows its
+	 * error message and the block source instead of failing the whole page.
+	 */
+	private fillPagesBlocks(html: string, blocks: PagesBlock[], self: string): string {
+		if (!blocks.length) return html;
+		const out = blocks.map((block) => {
+			try {
+				return renderPagesResult(runPagesQuery(this.index, parsePagesBlock(block.source), self));
+			} catch (e) {
+				const message = e instanceof PagesQueryError ? e.message : 'Could not run this query';
+				return renderPagesError(message, block.source);
+			}
+		});
+		return html
+			.replace(/<p><!--pages:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
+			.replace(/<!--pages:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
 	private async fillDiagrams(html: string, jobs: KrokiJob[]): Promise<{ html: string; failed: boolean }> {

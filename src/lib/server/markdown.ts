@@ -105,6 +105,8 @@ export interface RenderEnv {
 	headings?: { level: number; text: string; slug: string }[];
 	jobs?: KrokiJob[];
 	widgets?: Widget[];
+	/** `pages` blocks in document order, referenced by their placeholder index */
+	pagesBlocks?: PagesBlock[];
 	usedClient?: Set<string>;
 	slugs?: Map<string, number>;
 }
@@ -115,6 +117,12 @@ export type Widget =
 	| { kind: 'recent'; tag: string; limit: number }
 	| { kind: 'header' }
 	| { kind: 'categories' };
+
+/** A fenced `pages` block collected during rendering (validated + run by the service). */
+export interface PagesBlock {
+	/** raw YAML body exactly as written */
+	source: string;
+}
 
 const STR = `(?:"([^"\\\\]*)"|'([^'\\\\]*)')`;
 const SP = '\\s*';
@@ -290,6 +298,43 @@ function mathBlockRule(state: any, startLine: number, endLine: number, silent: b
 	return true;
 }
 
+/**
+ * A fenced ```pages block. Its body is a small YAML object (validated later, at render time,
+ * where the index and the block source are both available). Nothing is executed; the token
+ * only carries the raw body so an invalid block can be shown with its source.
+ */
+function pagesBlockRule(state: any, startLine: number, endLine: number, silent: boolean): boolean {
+	let pos = state.bMarks[startLine] + state.tShift[startLine];
+	const max = state.eMarks[startLine];
+	if (state.sCount[startLine] - state.blkIndent >= 4) return false;
+	const line = state.src.slice(pos, max);
+	const open = /^(```+|~~~+)\s*pages\s*$/.exec(line);
+	if (!open) return false;
+	const fence = open[1][0];
+	const markerLen = open[1].length;
+	let content = '';
+	let next = startLine;
+	let found = false;
+	for (next = startLine + 1; next < endLine; next++) {
+		pos = state.bMarks[next] + state.tShift[next];
+		const lineText = state.src.slice(pos, state.eMarks[next]);
+		// a closing fence is the same marker, optionally longer, with nothing else on the line
+		if (lineText.startsWith(fence) && new RegExp(`^${fence}{${markerLen},}\\s*$`).test(lineText)) {
+			found = true;
+			break;
+		}
+		content += lineText + '\n';
+	}
+	if (!found) return false;
+	if (silent) return true;
+	state.line = next + 1;
+	const tok = state.push('pages_block', '', 0);
+	tok.block = true;
+	tok.content = content.replace(/\n$/, '');
+	tok.map = [startLine, next + 1];
+	return true;
+}
+
 function resolveUrl(url: string, dir: string): string {
 	if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(url)) return url;
 	if (url.startsWith('/')) return '/f' + url;
@@ -313,6 +358,9 @@ export function createMarkdown() {
 	md.inline.ruler.before('text', 'expr_chip', exprRule);
 	md.inline.ruler.before('escape', 'math', mathInlineRule);
 	md.block.ruler.before('fence', 'math_block', mathBlockRule, {
+		alt: ['paragraph', 'reference', 'blockquote', 'list']
+	});
+	md.block.ruler.before('fence', 'pages_block', pagesBlockRule, {
 		alt: ['paragraph', 'reference', 'blockquote', 'list']
 	});
 
@@ -418,6 +466,13 @@ export function createMarkdown() {
 			inner = escapeHtml(code);
 		}
 		return `<pre><code${cls}>${inner}</code></pre>\n`;
+	};
+
+	// a `pages` block: collect the body and drop a placeholder the service fills from the index
+	r.pages_block = (tokens, idx, _o, env: any) => {
+		const list = (env.pagesBlocks ??= []);
+		list.push({ source: tokens[idx].content });
+		return `<!--pages:${list.length - 1}-->\n`;
 	};
 
 	const defaultLinkOpen = r.link_open ?? ((t, i, o, _e, s) => s.renderToken(t, i, o));
@@ -574,6 +629,7 @@ export interface Rendered {
 	html: string;
 	jobs: KrokiJob[];
 	widgets: Widget[];
+	pagesBlocks: PagesBlock[];
 	usedClient: string[];
 	headings: { level: number; text: string; slug: string }[];
 }
@@ -584,6 +640,7 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 		html,
 		jobs: env.jobs ?? [],
 		widgets: env.widgets ?? [],
+		pagesBlocks: env.pagesBlocks ?? [],
 		usedClient: [...(env.usedClient ?? [])],
 		headings: env.headings ?? []
 	};

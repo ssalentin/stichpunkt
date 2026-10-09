@@ -17,6 +17,7 @@ let outside: string;
 let pagesRoute: typeof import('../src/routes/api/v1/pages/[...path]/+server');
 let listRoute: typeof import('../src/routes/api/v1/pages/+server');
 let attachRoute: typeof import('../src/routes/api/v1/attachments/[...path]/+server');
+let queryRoute: typeof import('../src/routes/api/v1/query/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 
 beforeAll(async () => {
@@ -34,6 +35,7 @@ beforeAll(async () => {
 	pagesRoute = await import('../src/routes/api/v1/pages/[...path]/+server');
 	listRoute = await import('../src/routes/api/v1/pages/+server');
 	attachRoute = await import('../src/routes/api/v1/attachments/[...path]/+server');
+	queryRoute = await import('../src/routes/api/v1/query/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	const svc = await import('../src/lib/server/service');
 	// the singleton must stop polling when tests end
@@ -230,6 +232,42 @@ describe('path safety', () => {
 	});
 });
 
+describe('REST: POST /api/v1/query', () => {
+	it('returns rows for the same schema the block uses', async () => {
+		const res = await call(queryRoute.POST, req('POST', '/api/v1/query', { tag: 'infra', sort: 'title asc', show: 'list' }));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.total).toBe(1);
+		expect(body.rows.map((r: { path: string }) => r.path)).toEqual(['Server/Alpha']);
+	});
+
+	it('resolves `this` from the optional self field', async () => {
+		// a page that links to Server/Alpha, written for this test only
+		await call(pagesRoute.PUT, req('PUT', '/api/v1/pages/Link/To', { content: '[[Server/Alpha]]\n', base_hash: '' }), { path: 'Link/To' });
+		const res = await call(queryRoute.POST, req('POST', '/api/v1/query', { 'links-to': 'this', self: 'Server/Alpha', sort: 'title asc' }));
+		const body = await res.json();
+		expect(body.rows.map((r: { path: string }) => r.path)).toContain('Link/To');
+		expect(body.rows.map((r: { path: string }) => r.path)).not.toContain('Server/Alpha');
+	});
+
+	it('rejects an invalid query with 400 and a message', async () => {
+		const res = await call(queryRoute.POST, req('POST', '/api/v1/query', { limit: 'many' }));
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.error).toBe('bad_query');
+		expect(typeof body.message).toBe('string');
+	});
+
+	it('requires the token like every /api route', async () => {
+		const request = new Request('http://localhost/api/v1/query', { method: 'POST', body: '{}' });
+		const res = await handle({
+			event: { url: new URL(request.url), request } as never,
+			resolve: async () => new Response('ok')
+		});
+		expect(res.status).toBe(401);
+	});
+});
+
 describe('MCP', () => {
 	async function connect() {
 		const [a, b] = InMemoryTransport.createLinkedPair();
@@ -244,7 +282,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'delete_page', 'get_backlinks', 'list_pages', 'list_tags', 'pages_by_tag', 'read_page', 'search', 'upload_attachment', 'write_page'].sort()
+			['append_to_page', 'delete_page', 'get_backlinks', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'write_page'].sort()
 		);
 	});
 
@@ -299,6 +337,28 @@ describe('MCP', () => {
 		}
 	});
 
+	it('query_pages returns the same rows as the pages block', async () => {
+		const c = await connect();
+		const r = await c.callTool({
+			name: 'query_pages',
+			arguments: { tag: 'infra', sort: 'title asc', show: 'table', columns: ['title', 'tags'] }
+		});
+		const body = text(r);
+		expect(body.show).toBe('table');
+		expect(body.total).toBe(1);
+		expect(body.rows.map((x: { path: string }) => x.path)).toEqual(['Server/Alpha']);
+		expect(body.columns).toEqual(['title', 'tags']);
+	});
+
+	it('query_pages rejects an invalid query through the shared schema', async () => {
+		const c = await connect();
+		// `sort` is a free string to the tool schema, so it reaches the strict query schema
+		const r = await c.callTool({ name: 'query_pages', arguments: { sort: 'date sideways' } });
+		expect(r.isError).toBe(true);
+		expect(text(r).error).toBe('bad_query');
+		expect(text(r).status).toBe(400);
+	});
+
 	it('serves Streamable HTTP over the /mcp route (stateless, JSON)', async () => {
 		const body = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} };
 		const res = await call(
@@ -315,7 +375,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(10);
+		expect(json.result.tools.length).toBe(11);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });
