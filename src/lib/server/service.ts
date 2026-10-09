@@ -22,7 +22,10 @@ export interface PageView {
 }
 
 export interface TreeNode {
+	/** display label: the page title, or the folder name for a folder */
 	name: string;
+	/** filename stub (kept for sorting and folder identity) */
+	stub: string;
 	path: string;
 	page: boolean;
 	children: TreeNode[];
@@ -247,15 +250,18 @@ export class Mdwiki {
 	// ---- navigation data -------------------------------------------------------------------
 
 	tree(): TreeNode[] {
-		const root: TreeNode = { name: '', path: '', page: false, children: [] };
+		const root: TreeNode = { name: '', stub: '', path: '', page: false, children: [] };
 		for (const p of this.index.list()) {
 			let node = root;
 			const parts = p.path.split('/');
 			parts.forEach((part, i) => {
 				const path = parts.slice(0, i + 1).join('/');
-				let child = node.children.find((c) => c.name === part);
-				if (!child) node.children.push((child = { name: part, path, page: false, children: [] }));
-				if (i === parts.length - 1) child.page = true;
+				let child = node.children.find((c) => c.stub === part);
+				if (!child) node.children.push((child = { name: part, stub: part, path, page: false, children: [] }));
+				if (i === parts.length - 1) {
+					child.page = true;
+					child.name = p.title;
+				}
 				node = child;
 			});
 		}

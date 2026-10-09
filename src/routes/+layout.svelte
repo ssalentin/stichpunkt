@@ -76,7 +76,7 @@
 		<Tree nodes={data.tree} {current} />
 		<h3>Recent</h3>
 		<ul class="recent">
-			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}">{r.path}</a></li>{/each}
+			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path}>{r.title}</a></li>{/each}
 		</ul>
 		<h3>Tags</h3>
 		<p class="taglist">

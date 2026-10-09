@@ -38,7 +38,7 @@
 	{#if view.backlinks.length}
 		<ul>
 			{#each view.backlinks as b}
-				<li><a href="/{encodeURI(b.path)}" onclick={() => onnavigate?.()}>{b.path}</a></li>
+				<li><a href="/{encodeURI(b.path)}" title={b.path} onclick={() => onnavigate?.()}>{b.title}</a></li>
 			{/each}
 		</ul>
 	{:else}<p class="muted">Nothing links here</p>{/if}

@@ -3,6 +3,7 @@
 
 	interface Node {
 		name: string;
+		stub: string;
 		path: string;
 		page: boolean;
 		children: Node[];

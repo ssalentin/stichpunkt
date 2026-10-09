@@ -58,6 +58,18 @@ export function parseQuery(q: string): { terms: string[]; tags: string[]; folder
 
 const HIDDEN_PREFIX = 'Library/';
 
+/**
+ * Display title of a page: the frontmatter `title`, else the first H1 heading,
+ * else the filename stub. Keeps navigation readable without editing any file.
+ */
+export function pageTitle(path: string, frontmatter: Record<string, unknown>, headings: { level: number; text: string }[]): string {
+	const fm = frontmatter.title ?? frontmatter.name;
+	if (typeof fm === 'string' && fm.trim()) return fm.trim();
+	const h1 = headings.find((h) => h.level === 1 && h.text.trim());
+	if (h1) return h1.text.trim();
+	return path.slice(path.lastIndexOf('/') + 1);
+}
+
 /** In-memory index over the files: titles, frontmatter, tags, links, backlinks, headings, full text. */
 export class SpaceIndex {
 	pages = new Map<string, PageRec>();
@@ -138,7 +150,7 @@ export class SpaceIndex {
 		if (path === 'CONFIG') this.configTags = parseTagPages(content);
 		this.pages.set(path, {
 			path,
-			title: path.slice(path.lastIndexOf('/') + 1),
+			title: pageTitle(path, a.frontmatter, a.headings),
 			mtimeMs: info.mtimeMs,
 			size: info.size,
 			hash: hashOf(content),
@@ -256,7 +268,7 @@ export class SpaceIndex {
 		const m = this.backlinkMap.get(page);
 		if (!m) return [];
 		return [...m.entries()]
-			.map(([path, count]) => ({ path, title: path.slice(path.lastIndexOf('/') + 1), count }))
+			.map(([path, count]) => ({ path, title: this.pages.get(path)?.title ?? path.slice(path.lastIndexOf('/') + 1), count }))
 			.sort((a, b) => a.path.localeCompare(b.path));
 	}
 

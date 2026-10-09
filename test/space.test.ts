@@ -48,6 +48,29 @@ describe('index', () => {
 		expect(html).toContain('class="wikilink missing"');
 	});
 
+	it('titles pages from frontmatter, then the first H1, then the filename', async () => {
+		const { mdwiki } = await setup();
+		// frontmatter title wins
+		expect(mdwiki.index.get('Syntax')?.title).toBe('Syntax');
+		// first H1 when there is no frontmatter title (index.md -> "# Home")
+		expect(mdwiki.index.get('index')?.title).toBe('Home');
+		// filename stub when neither exists (Notes/Garten.md has no title and no H1)
+		expect(mdwiki.index.get('Notes/Garten')?.title).toBe('Garten');
+		// a plain page falls back to its own name
+		expect(mdwiki.index.get('Server/Alpha')?.title).toBe('Alpha');
+	});
+
+	it('uses titles in the sidebar tree, folders keep their name', async () => {
+		const { mdwiki } = await setup();
+		const flat = (nodes: ReturnType<typeof mdwiki.tree>): { name: string; path: string }[] =>
+			nodes.flatMap((n) => [{ name: n.name, path: n.path }, ...flat(n.children)]);
+		const nodes = flat(mdwiki.tree());
+		expect(nodes.find((n) => n.path === 'index')?.name).toBe('Home');
+		expect(nodes.find((n) => n.path === 'Syntax')?.name).toBe('Syntax');
+		// the Server folder has a page, so its label is the page title ("Server" has no H1 other than the name)
+		expect(nodes.find((n) => n.path === 'Server')?.name).toBe('Server');
+	});
+
 	it('collects frontmatter and inline tags and hides Library', async () => {
 		const { mdwiki } = await setup();
 		const tags = Object.fromEntries(mdwiki.listTags().map((t) => [t.name, t.count]));

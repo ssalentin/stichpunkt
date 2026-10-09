@@ -29,7 +29,7 @@
 			<section class="tagged">
 				<h2>Pages tagged <a class="tag" href="/tag/{encodeURI(list.tag)}">#{list.tag}</a></h2>
 				{#if list.pages.length}
-					<ul>{#each list.pages as p}<li><a href="/{encodeURI(p.path)}">{p.path}</a></li>{/each}</ul>
+					<ul>{#each list.pages as p}<li><a href="/{encodeURI(p.path)}" title={p.path}>{p.title ?? p.path}</a></li>{/each}</ul>
 				{:else}<p class="muted">No other pages.</p>{/if}
 			</section>
 		{/each}
@@ -40,7 +40,7 @@
 		<p class="muted">This page does not exist. Pages are written by agents through the MCP server.</p>
 		{#if data.namespace.length}
 			<h2>In {data.name}/</h2>
-			<ul>{#each data.namespace as p}<li><a href="/{encodeURI(p.path)}">{p.path}</a></li>{/each}</ul>
+			<ul>{#each data.namespace as p}<li><a href="/{encodeURI(p.path)}" title={p.path}>{p.title ?? p.path}</a></li>{/each}</ul>
 		{/if}
 	</article>
 {/if}

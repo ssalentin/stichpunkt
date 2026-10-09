@@ -27,7 +27,7 @@
 		const name = q.trim().replace(/^\/+|\/+$/g, '');
 		const out: Row[] = [];
 		if (mode === 'switch') {
-			for (const m of matches) out.push({ label: m.path, go: () => open(`/${encodeURI(m.path)}`) });
+			for (const m of matches) out.push({ label: m.title, hint: m.path !== m.title ? m.path : undefined, go: () => open(`/${encodeURI(m.path)}`) });
 			if (name) out.push({ label: `Search text for "${name}"`, hint: 'full-text', go: () => open(`/search?q=${encodeURIComponent(name)}`) });
 		}
 		return out;
