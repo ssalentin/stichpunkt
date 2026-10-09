@@ -84,7 +84,7 @@
 		</p>
 	</aside>
 
-	<main>{@render children()}</main>
+	<main class="main">{#key page.url.pathname}<div class="main-inner">{@render children()}</div>{/key}</main>
 
 	<aside class="right">
 		{#if view}<Panel {view} />{/if}
