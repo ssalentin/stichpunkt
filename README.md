@@ -9,6 +9,7 @@
 
 A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database — agents write through MCP, you read.
 
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
@@ -77,9 +78,15 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 
 ## Screenshots
 
-> 📸 _Placeholder — screenshots of the reading UI (desktop and mobile) will be added here._
+<p align="center">
+  <img src="docs/assets/screenshot-desktop.png" alt="stichpunkt on desktop: folder tree, article, outline, backlinks and properties" width="800">
+</p>
 
-In the meantime, [`examples/knowledge/`](examples/knowledge) is a generated, content-free example space that exercises every feature. See [Development](#development) for how to run it.
+<p align="center">
+  <img src="docs/assets/screenshot-mobile.png" alt="stichpunkt on mobile: bottom navigation bar" width="280">
+</p>
+
+_Screenshots show the bundled [`examples/knowledge/`](examples/knowledge) space (dark theme). See [Development](#development) to run it yourself._
 
 ## Quickstart
 
@@ -252,4 +259,4 @@ Test fixtures live in `test/fixtures/space` (synthetic, no real content).
 
 ## License
 
-No license file has been added to this repository yet; until one is, all rights are reserved by the author.
+[MIT](LICENSE) © 2026 ssalentin
