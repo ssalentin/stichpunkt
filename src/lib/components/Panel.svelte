@@ -1,5 +1,6 @@
 <script lang="ts">
-		import { toast } from '#lib/ui.svelte';
+	import { toast } from '#lib/ui.svelte';
+	import { copyText } from '#lib/client/clipboard';
 
 	interface View {
 		path: string;
@@ -14,12 +15,7 @@
 	const fmt = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
 	async function copyLink() {
-		try {
-			await navigator.clipboard.writeText(`[[${view.path}]]`);
-			toast('Wikilink copied');
-		} catch {
-			toast('Copy not available');
-		}
+		toast((await copyText(`[[${view.path}]]`)) ? 'Wikilink copied' : 'Copy failed: clipboard is blocked by the browser');
 	}
 </script>
 
