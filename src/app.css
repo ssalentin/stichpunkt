@@ -183,7 +183,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .md img { max-width: 100%; height: auto; }
 .md p, .md li { overflow-wrap: anywhere; }
 /* links in running content must not rely on colour alone (a11y); chips, cards and buttons stay plain */
-.md :is(p, li, td, th, blockquote) a:not(.tag, .btn, .wg-card) { text-decoration: underline; text-underline-offset: 0.15em; }
+.md :is(p, li, td, th, blockquote) a:not(.tag, .btn, .wg-card) { text-decoration-line: underline; text-underline-offset: 0.15em; }
 .md blockquote { margin: 1em 0; padding: 0.1em 1em; border-left: 3px solid var(--border); color: var(--muted); }
 .md code { font-size: 0.88em; background: var(--panel); border-radius: 4px; padding: 0.1em 0.3em; color: var(--code); }
 .md pre { background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.75rem; overflow-x: auto; font-size: 0.85rem; max-width: 100%; }
