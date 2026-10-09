@@ -64,6 +64,18 @@ describe('SilverBullet-only syntax is inert', () => {
 		expect(html).toContain('class="chip inert"');
 		expect(html).not.toContain('<script>');
 	});
+
+	it('labels the placeholders plainly and runs nothing', () => {
+		const { html } = render('```space-lua\nprint(1)\n```\n\nvalue ${1 + 1}');
+		// block: language name + "not run", with a readable line count
+		expect(html).toContain('space-lua · not run');
+		expect(html).toContain('1 line');
+		expect(html).toContain('click to read');
+		// inline: "not run" and no stray symbol, the raw source in the tooltip
+		expect(html).toContain('>expression · not run</span>');
+		expect(html).not.toContain('&#402;');
+		expect(html).not.toContain('not executed');
+	});
 });
 
 describe('other syntax', () => {

@@ -376,7 +376,7 @@ export function createMarkdown() {
 		return chipHtml(tokens[idx].content);
 	};
 	const chipHtml = (content: string) =>
-		`<span class="chip inert" title="${escapeHtml(content)}">&#402; expression (not executed)</span>`;
+		`<span class="chip inert" title="${escapeHtml(content)}">expression · not run</span>`;
 
 	r.math = (tokens, idx, _o, env: any) => {
 		(env.usedClient ??= new Set()).add('katex');
@@ -392,8 +392,9 @@ export function createMarkdown() {
 		const code = t.content;
 		if (INERT_FENCES.has(lang)) {
 			const lines = code.split('\n').length - 1;
+			const label = lines === 1 ? '1 line' : `${lines} lines`;
 			return (
-				`<details class="chip-block inert"><summary><span class="chip inert">${escapeHtml(lang)} block (not executed, ${lines} lines)</span></summary>` +
+				`<details class="chip-block inert"><summary><span class="chip inert">${escapeHtml(lang)} · not run</span><span class="chip-meta">${label}, click to read</span></summary>` +
 				`<pre><code>${escapeHtml(code)}</code></pre></details>\n`
 			);
 		}

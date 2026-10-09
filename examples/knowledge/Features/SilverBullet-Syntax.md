@@ -3,9 +3,9 @@ tags: [feature, compat]
 ---
 # SilverBullet-only syntax
 
-These constructs come from SilverBullet. They render as muted, inert chips and are never executed.
+SilverBullet uses a few constructs that stichpunkt does **not** run. It shows them as a small, quiet, collapsed placeholder so nothing is lost and nothing executes — expand the block to read the original text.
 
-An expression that stichpunkt does not know: ${1 + 1} sits inline as a chip. See [[Features/Expressions]] for the four built-in widgets.
+An unknown expression, for example `${1 + 1}`, stays an inline placeholder:
 
 ```space-lua
 print("this never runs")
@@ -18,3 +18,5 @@ page where tags = "feature"
 ```space-style
 body { color: red }
 ```
+
+None of these code blocks are executed. The four helper calls stichpunkt *does* understand are described in [[Features/Expressions]].
