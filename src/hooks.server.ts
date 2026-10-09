@@ -1,8 +1,11 @@
 import type { Handle } from '@sveltejs/kit/hooks';
-import { checkBearer, isProtectedPath } from '#lib/server/auth';
+import { checkBearer, configuredToken, isProtectedPath } from '#lib/server/auth';
 
 /** Set by the reverse proxy on the token router only, e.g. `X-Mdwiki-Zone: machine`. */
 export const MACHINE_ZONE_HEADER = 'x-mdwiki-zone';
+
+// report a rejected token at startup, not only on the first request
+configuredToken();
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
 	new Response(JSON.stringify(body), {
@@ -21,7 +24,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 
 	if (viaTokenRouter || isProtectedPath(pathname)) {
 		// Authelia sits in front of the web UI only; the machine interfaces check the token themselves.
-		if (!checkBearer(event.request.headers.get('authorization'), process.env.MDWIKI_API_TOKEN ?? '')) {
+		if (!checkBearer(event.request.headers.get('authorization'), configuredToken())) {
 			return json(401, { error: 'unauthorized', message: 'Bearer token required' }, {
 				'www-authenticate': 'Bearer realm="mdwiki"'
 			});

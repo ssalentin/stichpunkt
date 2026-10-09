@@ -151,7 +151,7 @@ Set via environment variables (see [`.env.example`](.env.example)).
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
-| `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **empty = both always answer 401** |
+| `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **at least 32 characters; empty, shorter or `change-me` = both always answer 401** (a startup error is logged). `openssl rand -base64 32` gives 44 |
 | `KROKI_URL` | empty | internal Kroki base URL; empty disables server-side diagrams (they show an error block) |
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
@@ -175,7 +175,9 @@ The web UI has **no login of its own**, so two routers are needed:
 | Router | Paths | Auth | `X-Mdwiki-Zone` |
 | --- | --- | --- | --- |
 | UI | everything else | your SSO (e.g. Authelia) | **must not set** |
-| Machine | `/mcp`, `/api` | bearer token | **must set `machine`** (overwriting any client value) |
+| Machine | `/mcp`, `/api` (see rule below) | bearer token | **must set `machine`** (overwriting any client value) |
+
+Match the machine router with ``Path(`/mcp`) || PathPrefix(`/mcp/`) || Path(`/api`) || PathPrefix(`/api/`)``, not a bare ``PathPrefix(`/api`)``, which is a plain string match and also catches `/apix` and `/mcp-foo`.
 
 With the header present, the app requires the token for *every* path on that request. This closes path tricks like `/api/%2e%2e/_ui/page`, which a proxy matching the raw path could otherwise forward as `/_ui/page`. In Traefik, use a `headers` middleware with `customRequestHeaders`.
 
@@ -259,4 +261,4 @@ Test fixtures live in `test/fixtures/space` (synthetic, no real content).
 
 ## License
 
-[MIT](LICENSE) © 2026 ssalentin
+[MIT](LICENSE) © 2026 the stichpunkt authors

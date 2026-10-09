@@ -8,7 +8,7 @@ import { handle } from '../src/hooks.server';
 import { buildMcpServer } from '../src/lib/server/mcp';
 import { makeMdwiki } from './helpers';
 
-const TOKEN = 'test-token';
+const TOKEN = 'test-token-0123456789-0123456789-abcdef';
 let dir: string;
 let mdwiki: Awaited<ReturnType<typeof makeMdwiki>>['mdwiki'];
 let outside: string;
@@ -19,6 +19,7 @@ let listRoute: typeof import('../src/routes/api/v1/pages/+server');
 let attachRoute: typeof import('../src/routes/api/v1/attachments/[...path]/+server');
 let queryRoute: typeof import('../src/routes/api/v1/query/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
+let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
 beforeAll(async () => {
 	const made = await makeMdwiki();
@@ -37,6 +38,7 @@ beforeAll(async () => {
 	attachRoute = await import('../src/routes/api/v1/attachments/[...path]/+server');
 	queryRoute = await import('../src/routes/api/v1/query/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
+	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
 	// the singleton must stop polling when tests end
 	afterAll(async () => (await svc.getMdwiki()).stop());
@@ -122,6 +124,44 @@ describe('auth gate (hooks.server)', () => {
 			for (const url of ['/_ui/page', '/_ui/toggle', '/_ui/upload']) {
 				expect(await run(method, url, { origin: 'http://localhost' }), `${method} ${url}`).toEqual({ status: 405, reached: false });
 			}
+		}
+	});
+});
+
+describe('weak tokens', () => {
+	const status = async (configured: string, sent: string) => {
+		const prev = process.env.MDWIKI_API_TOKEN;
+		process.env.MDWIKI_API_TOKEN = configured;
+		try {
+			const request = new Request('http://localhost/api/v1/pages', { headers: { authorization: `Bearer ${sent}` } });
+			const res = await handle({
+				event: { url: new URL(request.url), request } as never,
+				resolve: async () => new Response('ok')
+			});
+			return res.status;
+		} finally {
+			process.env.MDWIKI_API_TOKEN = prev;
+		}
+	};
+
+	it('answers 401 for the placeholder and for 31 characters, even when the client sends exactly that', async () => {
+		expect(await status('change-me', 'change-me')).toBe(401);
+		expect(await status('a'.repeat(31), 'a'.repeat(31))).toBe(401);
+		expect(await status('a'.repeat(32), 'a'.repeat(32))).toBe(200);
+	});
+
+	it('logs one error that never contains the token', async () => {
+		const { vi } = await import('vitest');
+		vi.resetModules(); // the warn-once flag is module state; earlier tests may already have set it
+		const auth = await import('../src/lib/server/auth');
+		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+		try {
+			expect(auth.configuredToken('short-secret')).toBe('');
+			expect(auth.configuredToken('short-secret')).toBe('');
+			expect(spy).toHaveBeenCalledTimes(1);
+			expect(JSON.stringify(spy.mock.calls)).not.toContain('short-secret');
+		} finally {
+			spy.mockRestore();
 		}
 	});
 });
@@ -265,6 +305,49 @@ describe('REST: POST /api/v1/query', () => {
 			resolve: async () => new Response('ok')
 		});
 		expect(res.status).toBe(401);
+	});
+});
+
+describe('/f/ attachment route', () => {
+	const get = (p: string) =>
+		call(fileRoute.GET, new Request('http://localhost/f/x'), { path: p }).then(
+			(r: Response) => r.status,
+			(e: { status?: number }) => e.status
+		);
+
+	it('rejects traversal, escaping symlinks and disallowed extensions, and serves nothing outside the space', async () => {
+		fs.writeFileSync(path.join(outside, 'leak.png'), 'leaked');
+		fs.symlinkSync(outside, path.join(dir, 'fescape'));
+		fs.symlinkSync(path.join(outside, 'leak.png'), path.join(dir, 'leak.png'));
+		expect(await get('../leak.png')).toBe(400);
+		expect(await get('Server/../../leak.png')).toBe(400);
+		expect(await get('fescape/leak.png')).toBe(400);
+		expect(await get('leak.png')).toBe(400);
+		expect(await get('Server/run.sh')).toBe(400);
+		expect(await get('Server/page.html')).toBe(400);
+	});
+});
+
+describe('delete through an escaping symlink', () => {
+	it('answers 400 via REST and MCP and keeps the outside file', async () => {
+		const victim = path.join(outside, 'victim.md');
+		fs.writeFileSync(victim, 'keep me');
+		fs.symlinkSync(victim, path.join(dir, 'del-link.md'));
+		fs.symlinkSync(outside, path.join(dir, 'del-dir'));
+		for (const p of ['del-link', 'del-dir/victim']) {
+			const res = await call(pagesRoute.DELETE, req('DELETE', '/x'), { path: p });
+			expect(res.status, `REST ${p}`).toBe(400);
+		}
+		const [a, b] = InMemoryTransport.createLinkedPair();
+		await buildMcpServer(mdwiki).connect(b);
+		const client = new Client({ name: 'test', version: '1' });
+		await client.connect(a);
+		for (const p of ['del-link', 'del-dir/victim']) {
+			const r = await client.callTool({ name: 'delete_page', arguments: { path: p } });
+			expect(r.isError, `MCP ${p}`).toBe(true);
+			expect(JSON.parse((r.content as { text: string }[])[0].text).status).toBe(400);
+		}
+		expect(fs.readFileSync(victim, 'utf8')).toBe('keep me');
 	});
 });
 
