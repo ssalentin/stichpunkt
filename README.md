@@ -1,46 +1,152 @@
-# stichpunkt
+<div align="center">
 
-A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; the server renders pages to HTML, keeps an in-memory index, and exposes the same operations over a web UI, a REST API (`/api/v1`) and an MCP server (`/mcp`).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/logo-dark.svg">
+  <img src="docs/assets/logo-light.svg" alt="stichpunkt" width="460">
+</picture>
 
-*Notes that stay in order.* — a fast, minimal markdown wiki where agents write and you read.
+**Notes that stay in order.**
 
-SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki container for server-side diagrams).
+A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database — agents write through MCP, you read.
 
-The display name, tagline and brand palette live in one place, `src/lib/brand.ts`; the PWA icons are the design set from the naming ticket (`static/icon*.png`, `static/icon.svg`, `static/icon-maskable.svg`, `static/wordmark.svg`). The repo, package, container and the environment variables were renamed to `stichpunkt` except for `MDWIKI_API_TOKEN`, the `X-Mdwiki-Zone` proxy header and the npm package name, which keep the old id as an internal contract.
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Node.js ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org)
+[![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-8A63D2)](https://modelcontextprotocol.io)
+[![Docker](https://img.shields.io/badge/Docker-compose-2496ED?logo=docker&logoColor=white)](compose.yml)
+[![PWA](https://img.shields.io/badge/PWA-installable-5A0FC8?logo=pwa&logoColor=white)](#features)
+
+[Quickstart](#quickstart) · [Features](#features) · [Configuration](#configuration) · [API & MCP](#api--mcp) · [Architecture](#architecture) · [Development](#development)
+
+</div>
+
+---
+
+## Table of contents
+
+- [What is stichpunkt?](#what-is-stichpunkt)
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Quickstart](#quickstart)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [API & MCP](#api--mcp)
+- [Operations](#operations)
+- [Architecture](#architecture)
+- [Development](#development)
+- [License](#license)
+
+## What is stichpunkt?
+
+*Stichpunkt* is German for "bullet point". It is a small wiki server built around one idea: **your knowledge base is just a directory of markdown files**. The server renders those files to a fast, mobile-first reading UI, keeps an in-memory index for search, tags and backlinks, and exposes the same operations over a REST API and an [MCP](https://modelcontextprotocol.io) server.
+
+The web UI is deliberately **read-only**. Changes are made by agents (or scripts) writing through MCP or the token-protected REST API, so humans get a clean reading experience and agents get a safe, conflict-aware write path. Because the files are plain markdown, you can still edit, sync, grep and back them up with any tool you like.
 
 ## Features
 
-- Directory of markdown files, folders are namespaces (`Server/SilverBullet.md` is page `Server/SilverBullet`). `Library/` is hidden from navigation.
-- Frontmatter, CommonMark + GFM, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]`, `#tags` (inline + frontmatter `tags`), highlighted code. A wikilink displays the **page name**, not the typed path — the full path stays in the tooltip — and both pages keep their folder prefix only when their names collide.
-- SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
-- SilverBullet helper widgets: exactly four known calls (`kb.section("tag")`, `kb.recent("tag", n)` incl. the `kb.safe` wrapper, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets (categories come from `tag.define` in `CONFIG.md`). They are presets of the same query engine as the `pages` block. Nothing is evaluated; any other `${...}` stays an inert chip.
-- **`pages` block (declarative queries)**: a fenced ```pages block with a small YAML body lists pages from the index. Filters: `tag` (one or a list, nested tags match), `folder` (path prefix, `this` = the page's folder) and `links-to` (`this` = backlinks of the page). `sort` accepts `title`, `modified`, `date` or any frontmatter key with `asc`/`desc`. `show` is `list`, `table` (with `columns`) or `count`; `limit` defaults to 50 and never exceeds 200. The body is checked against a strict schema (js-yaml CORE + zod): unknown keys or wrong types render the error with the block source. No expressions, no regex, nothing executed. The same engine is exposed as the `query_pages` MCP tool and `POST /api/v1/query`, using the same filter names as search (`#tag`, `in:folder`).
-- Automatic `/tag/<name>` pages; a page named like a tag (or mapped via `tag.define { name=…, tagPage=… }` in `CONFIG.md`, parsed, not executed) gets a "Pages tagged #x" list.
-- Mobile-first shell (bottom bar, bottom sheet), three columns on desktop, quick switcher (Ctrl/Cmd-K), full-text search, breadcrumbs. Task checkboxes are shown disabled.
-- Search results are ranked cards: title, folder breadcrumb, the matching section with an anchor, a highlighted snippet, plus folder and tag facets to narrow the query (`#tag`, `in:folder`, `"phrases"`). The empty state offers the recently changed pages.
-- Diagrams appear in place: client renderers (Mermaid, Vega-Lite, KaTeX) start fetching as soon as the page data is known, and the raw source is never shown first — a placeholder shimmer holds the space until the figure is ready. Server-rendered Kroki figures are unaffected.
-- Frontmatter properties are not printed above the article; they live in the right rail on desktop and in the “More” sheet on mobile, next to outline, backlinks and tags.
-- **Read-only web UI**: no editor, task toggling, upload or delete in the browser; `/_ui/*` answers 405 to every non-GET. Changes are made only by agents writing through MCP (`write_page`, `append_to_page`, `delete_page`, `upload_attachment`) or the equivalent token-protected REST API.
-- Diagrams behind one registry (`src/lib/diagrams.ts`): Mermaid, Vega-Lite, KaTeX client-side and lazy; PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa via Kroki (SVG cached by hash). Broken diagrams show the error and the source.
-- Installable PWA; service worker caches the shell and the last ~50 visited pages for offline reading. Editing needs a connection.
+**Reading experience**
 
-## Run
+- Folders are namespaces (`Server/SilverBullet.md` → page `Server/SilverBullet`); `Library/` is hidden from navigation.
+- CommonMark + GFM, frontmatter, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]` wikilinks, `#tags` (inline and frontmatter) and syntax-highlighted code.
+- Mobile-first shell (bottom bar and sheet), three columns on desktop, quick switcher (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), breadcrumbs, outline, backlinks and a properties rail.
+- Full-text search with ranked result cards, anchors, highlighted snippets and folder/tag facets (`#tag`, `in:folder`, `"phrases"`).
+- Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
+- Installable PWA; the service worker caches the shell and the last ~50 visited pages for offline reading.
+
+**Diagrams**
+
+- Client-side and lazy: Mermaid, Vega-Lite, KaTeX.
+- Server-side via [Kroki](https://kroki.io) (SVG cached by hash): PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa.
+- A placeholder holds the space until the figure is ready; broken diagrams show the error and the source.
+
+**Declarative queries**
+
+- A fenced ` ```pages ` block with a small YAML body lists pages from the index: filters `tag`, `folder`, `links-to`; `sort` by `title`, `modified`, `date` or any frontmatter key; `show` as `list`, `table` or `count`; `limit` defaults to 50 (max 200).
+- Strictly validated (js-yaml CORE + zod) — no expressions, no regex, nothing executed. The same engine backs the `query_pages` MCP tool and `POST /api/v1/query`.
+
+**SilverBullet compatibility**
+
+- SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
+- The four known helper calls (`kb.section`, `kb.recent`, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets.
+
+**Agent-friendly writes**
+
+- MCP tools and REST endpoints for search, read, write, append, delete and attachment upload.
+- Optimistic concurrency via content hash (`base_hash`, **409** on conflict) and per-file write serialisation.
+- Path safety: `..`, absolute paths, backslashes, dot-files and symlinks leaving `SPACE_DIR` are rejected.
+
+## Screenshots
+
+<p align="center">
+  <img src="docs/assets/screenshot-desktop.png" alt="stichpunkt on desktop: folder tree, article, outline, backlinks and properties" width="800">
+</p>
+
+<p align="center">
+  <img src="docs/assets/screenshot-mobile.png" alt="stichpunkt on mobile: bottom navigation bar" width="280">
+</p>
+
+_Screenshots show the bundled [`examples/knowledge/`](examples/knowledge) space (dark theme). See [Development](#development) to run it yourself._
+
+## Quickstart
+
+Requires Docker with Compose. (Without Docker you need Node.js ≥ 22.)
 
 ```sh
-cp .env.example .env            # set MDWIKI_API_TOKEN (openssl rand -base64 32)
+git clone https://github.com/ssalentin/stichpunkt.git
+cd stichpunkt
+
+cp .env.example .env             # set MDWIKI_API_TOKEN (openssl rand -base64 32)
 mkdir space                      # or copy your markdown directory here
 docker compose up -d --build
 ```
 
-The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). Match the token router with ``Path(`/mcp`) || PathPrefix(`/mcp/`) || Path(`/api`) || PathPrefix(`/api/`)``, not a bare `PathPrefix(`/api`)`, which is a plain string match and also catches `/apix` and `/mcp-foo`. The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` for generated URLs.
+The sample [`compose.yml`](compose.yml) starts stichpunkt (port 3000 inside the container) and an internal Kroki container for server-side diagrams. **It does not publish a port** — put your reverse proxy in front (see [Reverse-proxy contract](#reverse-proxy-contract)).
 
-Without Docker: `npm ci && npm run build && SPACE_DIR=./space MDWIKI_API_TOKEN=… node build/index.js`.
+Without Docker:
 
-### Reverse-proxy contract (important)
+```sh
+npm ci && npm run build
+SPACE_DIR=./space MDWIKI_API_TOKEN=… node build/index.js
+```
 
-The web UI has no login; the proxy router for the UI must authenticate (e.g. Authelia). The router for `/mcp` and `/api` is protected by the bearer token and **must set the request header `X-Mdwiki-Zone: machine`** (Traefik: a `headers` middleware with `customRequestHeaders`, which overwrites any client-supplied value). The app then requires the token for *every* path on requests carrying that header. This closes path tricks like `/api/%2e%2e/_ui/page` (the URL parser turns `%2e%2e` into `..`, so a proxy matching the raw path `/api` could otherwise forward a request that the app sees as `/_ui/page`). The UI router must never set the header; a client adding it there only makes its own request stricter.
+## Usage
+
+**Read** — open the site through your proxy. Browse by folder, search, or press <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> for the quick switcher.
+
+**Write from an agent** — register the MCP server, for example with Claude Code:
+
+```sh
+claude mcp add --transport http stichpunkt https://stichpunkt.example.org/mcp \
+  --header "Authorization: Bearer $MDWIKI_API_TOKEN"
+```
+
+**Write from a script** — use the REST API:
+
+```sh
+curl -X PUT https://stichpunkt.example.org/api/v1/pages/Notes/Hello \
+  -H "Authorization: Bearer $MDWIKI_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"content": "# Hello\n\nA first note #demo", "base_hash": ""}'
+```
+
+`base_hash: ""` means "the page must not exist yet".
+
+**Query pages from markdown** — put this in any page:
+
+````md
+```pages
+tag: project
+sort: modified desc
+show: table
+columns: [title, status]
+limit: 20
+```
+````
 
 ## Configuration
+
+Set via environment variables (see [`.env.example`](.env.example)).
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -54,9 +160,28 @@ The web UI has no login; the proxy router for the UI must authenticate (e.g. Aut
 | `BODY_SIZE_LIMIT` | `25M` (image) | adapter-node request body limit; keep ≥ `MAX_UPLOAD_BYTES` |
 | `PORT`, `HOST`, `PROTOCOL_HEADER`, `HOST_HEADER` | | adapter-node settings |
 
-Allowed file extensions (read/write/upload): `md txt csv json pdf png jpg jpeg gif webp avif heic svg`. Paths with `..`, absolute paths, backslashes, dot-files, or symlinks leaving `SPACE_DIR` are rejected.
+Allowed file extensions (read/write/upload): `md txt csv json pdf png jpg jpeg gif webp avif heic svg`.
 
-## API
+The display name, tagline and brand palette live in one place: [`src/lib/brand.ts`](src/lib/brand.ts).
+
+> **Naming note:** the project was renamed to `stichpunkt`, except for `MDWIKI_API_TOKEN`, the `X-Mdwiki-Zone` proxy header and the npm package name, which keep the old id as an internal contract.
+
+### Reverse-proxy contract
+
+The app serves plain HTTP; TLS is terminated by the proxy, so set `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host`, otherwise SvelteKit assumes `https` for generated URLs.
+
+The web UI has **no login of its own**, so two routers are needed:
+
+| Router | Paths | Auth | `X-Mdwiki-Zone` |
+| --- | --- | --- | --- |
+| UI | everything else | your SSO (e.g. Authelia) | **must not set** |
+| Machine | `/mcp`, `/api` (see rule below) | bearer token | **must set `machine`** (overwriting any client value) |
+
+Match the machine router with ``Path(`/mcp`) || PathPrefix(`/mcp/`) || Path(`/api`) || PathPrefix(`/api/`)``, not a bare ``PathPrefix(`/api`)``, which is a plain string match and also catches `/apix` and `/mcp-foo`.
+
+With the header present, the app requires the token for *every* path on that request. This closes path tricks like `/api/%2e%2e/_ui/page`, which a proxy matching the raw path could otherwise forward as `/_ui/page`. In Traefik, use a `headers` middleware with `customRequestHeaders`.
+
+## API & MCP
 
 All routes require `Authorization: Bearer <token>`. Page names are paths without `.md`.
 
@@ -73,41 +198,67 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 
-MCP (`POST /mcp`, Streamable HTTP, stateless): `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `upload_attachment`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `upload_attachment`.
 
-```sh
-claude mcp add --transport http stichpunkt https://stichpunkt.example.org/mcp --header "Authorization: Bearer $MDWIKI_API_TOKEN"
-```
+## Operations
 
-## Token rotation
+**Token rotation**
 
 1. Generate a new token: `openssl rand -base64 32`; store it in your password manager.
 2. Put it into `.env` as `MDWIKI_API_TOKEN`.
 3. `docker compose up -d stichpunkt` (recreates the container; the web UI is unaffected).
 4. Update the clients (agent runtimes, `claude mcp add … --header`). The old token stops working immediately.
 
-## Stop
+**Stopping**
 
-`docker compose stop` (keep containers), `docker compose down` (remove containers; `space/` is a bind mount and is never touched), `docker compose down -v` also drops the diagram cache volume.
+- `docker compose stop` — keep containers.
+- `docker compose down` — remove containers; `space/` is a bind mount and is never touched.
+- `docker compose down -v` — also drops the diagram cache volume.
 
-## Example knowledge base
+## Architecture
 
-`examples/knowledge/` is a generated, content-free example space that shows every feature (wikilinks, tags and tag pages, tables, tasks, code, attachments, inert SilverBullet syntax, Mermaid, Vega-Lite, KaTeX, all Kroki diagram types, broken diagrams, short and long pages). Try it: `SPACE_DIR=examples/knowledge node build/index.js` (with `KROKI_URL` set for the server-side diagrams).
+```text
+ browser ──► UI proxy router (SSO) ───────┐
+                                          ▼
+ agents  ──► machine router (bearer) ──► stichpunkt (SvelteKit, adapter-node)
+              + X-Mdwiki-Zone: machine     │   ├─ web UI      src/routes
+                                           │   ├─ REST API    src/routes/api/v1
+                                           │   ├─ MCP server  src/routes/mcp
+                                           │   └─ in-memory index (pages, tags, backlinks, search)
+                                           │
+                       ┌───────────────────┼────────────────────┐
+                       ▼                   ▼                    ▼
+                  SPACE_DIR (*.md)    CACHE_DIR (SVG)     Kroki (internal)
+```
 
-## Develop and test
+- **Files are the source of truth.** The index is rebuilt in memory and refreshed by polling mtimes, so edits made outside the app show up too.
+- **One service layer, three front doors.** The UI, REST API and MCP tools share the same operations (`src/lib/server/service.ts`).
+- **Server code** lives in `src/lib/server/` (store, markdown rendering, `pages` query engine, auth, path safety, Kroki client, MCP); diagram handling is behind one registry in `src/lib/diagrams.ts`.
+- **Single container**, plus an internal-only Kroki container that is never exposed to the internet.
+
+## Development
 
 ```sh
 npm ci
 npm test            # vitest: renderer, index, polling, conflicts, path safety, auth, MCP
+npm run check       # svelte-check
 npm run build
+npm run dev         # vite dev server
 ```
 
-Test fixtures live in `test/fixtures/space` (synthetic; no real content). Notes:
+Try every feature against the example space (set `KROKI_URL` for server-side diagrams):
+
+```sh
+SPACE_DIR=examples/knowledge node build/index.js
+```
+
+Test fixtures live in `test/fixtures/space` (synthetic, no real content).
+
+**Things to know**
 
 - Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
-- The web UI has no login of its own; put it behind SSO. It is read only, so even an unauthenticated visitor cannot change content through it.
 - Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+[MIT](LICENSE) © 2026 the stichpunkt authors
