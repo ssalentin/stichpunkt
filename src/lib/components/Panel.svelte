@@ -11,7 +11,7 @@
 	}
 	let { view, onnavigate }: { view: View; onnavigate?: () => void } = $props();
 
-	const props = $derived(Object.entries(view.frontmatter ?? {}));
+	const fmEntries = $derived(Object.entries(view.frontmatter ?? {}));
 	const fmt = (v: unknown) => (typeof v === 'object' && v !== null ? JSON.stringify(v) : String(v));
 
 	async function copyLink() {
@@ -45,11 +45,11 @@
 		{#each view.tags as t}<a class="tag" href="/tag/{encodeURI(t)}" onclick={() => onnavigate?.()}>#{t}</a>{:else}<span class="muted">No tags</span>{/each}
 	</p>
 </section>
-{#if props.length}
+{#if fmEntries.length}
 	<section class="props-panel">
 		<h3>Properties</h3>
 		<dl>
-			{#each props as [k, v]}
+			{#each fmEntries as [k, v]}
 				<dt>{k}</dt>
 				<dd>{fmt(v)}</dd>
 			{/each}
