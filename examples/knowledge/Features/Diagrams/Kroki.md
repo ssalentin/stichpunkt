@@ -19,7 +19,7 @@ Wiki --> Agent : ok
 @startuml
 !include <C4/C4_Context>
 Person(user, "Reader", "Reads on a phone")
-System(wiki, "mdwiki", "Read-only markdown wiki")
+System(wiki, "stichpunkt", "Read-only markdown wiki")
 System_Ext(agent, "Agent", "Writes via MCP")
 Rel(user, wiki, "reads")
 Rel(agent, wiki, "writes")
@@ -80,6 +80,6 @@ Tag 1--* Page_Tag
 
 ```ditaa
 +--------+   +---------+
-| Agent  |-->|  mdwiki |
+| Agent  |-->| stichpunkt |
 +--------+   +---------+
 ```

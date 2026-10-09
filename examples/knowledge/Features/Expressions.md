@@ -4,7 +4,7 @@ date: 2026-10-08
 ---
 # Expressions
 
-mdwiki does **not** evaluate expressions. It recognises exactly four SilverBullet helper calls and renders them as built-in, server-side widgets; every other `${...}` stays an inert chip.
+stichpunkt does **not** evaluate expressions. It recognises exactly four SilverBullet helper calls and renders them as built-in, server-side widgets; every other `${...}` stays an inert chip.
 
 | Expression | Renders |
 | --- | --- |

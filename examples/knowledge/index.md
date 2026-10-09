@@ -1,8 +1,10 @@
 ---
 tags: [start, example]
-title: Welcome
+title: stichpunkt
 ---
-# Welcome to mdwiki
+# stichpunkt
+
+*Punkt für Punkt.* — a minimal markdown wiki. One point at a time, stitched together.
 
 ${(kb and kb.safe("Status", kb.header)) or "*Status unavailable*"}
 

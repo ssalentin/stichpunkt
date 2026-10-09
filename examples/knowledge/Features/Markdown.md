@@ -49,7 +49,7 @@ services:
 ```
 
 ```json
-{ "name": "mdwiki", "readOnly": true }
+{ "name": "stichpunkt", "readOnly": true }
 ```
 
 ## Lists

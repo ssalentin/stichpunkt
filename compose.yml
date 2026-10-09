@@ -1,7 +1,7 @@
-# Sample stack: mdwiki + kroki on an internal network. Adapt labels/volumes to your proxy.
+# Sample stack: stichpunkt + kroki on an internal network. Adapt labels/volumes to your proxy.
 # Copy .env.example to .env and fill MDWIKI_API_TOKEN before `docker compose up -d`.
 services:
-  mdwiki:
+  stichpunkt:
     build: .
     restart: unless-stopped
     env_file: .env
@@ -10,7 +10,7 @@ services:
       KROKI_URL: http://kroki:8000
     volumes:
       - ./space:/space          # the markdown directory (read-write)
-      - mdwiki-cache:/cache      # rendered diagram SVGs (safe to delete)
+      - stichpunkt-cache:/cache      # rendered diagram SVGs (safe to delete)
     networks: [internal, web]
     # Traefik: route the UI through Authelia forwardAuth, and /mcp + /api on a
     # separate router WITHOUT Authelia (they are protected by the bearer token).
@@ -29,7 +29,7 @@ services:
     networks: [internal]          # never exposed to the internet
 
 volumes:
-  mdwiki-cache:
+  stichpunkt-cache:
 
 networks:
   internal:

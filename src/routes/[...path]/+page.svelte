@@ -1,10 +1,14 @@
 <script lang="ts">
-	import { BRAND } from '#lib/brand';
+	import { BRAND, BRAND_TAGLINE } from '#lib/brand';
+	import Logo from '#lib/components/Logo.svelte';
 	import { afterNavigate } from '$app/navigation';
 	import { enhance, preload } from '#lib/client/diagrams';
 
 	let { data } = $props();
 	let article: HTMLElement | undefined = $state();
+
+	// the knowledge base's start page wears the brand mark, like the landing page
+	const isHome = $derived(data.kind === 'page' && data.name === 'index');
 
 	$effect(() => {
 		data.view?.html;
@@ -24,6 +28,13 @@
 
 {#if data.kind === 'page' && data.view}
 	<article class="page" bind:this={article}>
+		{#if isHome}
+			<div class="page-brand">
+				<Logo size={40} />
+				<span class="page-brand-name">{BRAND}<span class="dot">.</span></span>
+				<span class="page-brand-tag">{BRAND_TAGLINE}</span>
+			</div>
+		{/if}
 		<div class="md">{@html data.view.html}</div>
 		{#each data.view.tagLists as list (list.tag)}
 			<section class="tagged">

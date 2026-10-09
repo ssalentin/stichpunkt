@@ -6,7 +6,7 @@ A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; th
 
 SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki container for server-side diagrams).
 
-The display name, tagline and brand palette live in one place, `src/lib/brand.ts`; the PWA icons are the design set from the naming ticket (`static/icon*.png`, `static/icon.svg`, `static/icon-maskable.svg`, `static/wordmark.svg`). The technical working id `mdwiki` is still used for the environment variables, package and container, so the final rename stays a single change.
+The display name, tagline and brand palette live in one place, `src/lib/brand.ts`; the PWA icons are the design set from the naming ticket (`static/icon*.png`, `static/icon.svg`, `static/icon-maskable.svg`, `static/wordmark.svg`). The repo, package, container and the environment variables were renamed to `stichpunkt` except for `MDWIKI_API_TOKEN`, the `X-Mdwiki-Zone` proxy header and the npm package name, which keep the old id as an internal contract.
 
 ## Features
 
@@ -81,7 +81,7 @@ claude mcp add --transport http stichpunkt https://stichpunkt.example.org/mcp --
 
 1. Generate a new token: `openssl rand -base64 32`; store it in your password manager.
 2. Put it into `.env` as `MDWIKI_API_TOKEN`.
-3. `docker compose up -d mdwiki` (recreates the container; the web UI is unaffected).
+3. `docker compose up -d stichpunkt` (recreates the container; the web UI is unaffected).
 4. Update the clients (agent runtimes, `claude mcp add … --header`). The old token stops working immediately.
 
 ## Stop
