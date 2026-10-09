@@ -107,3 +107,7 @@ Test fixtures live in `test/fixtures/space` (synthetic; no real content). Notes:
 - Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
 - The web UI has no login of its own; put it behind SSO. It is read only, so even an unauthenticated visitor cannot change content through it.
 - Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
