@@ -3,7 +3,6 @@ import path from 'node:path';
 
 export interface MdwikiConfig {
 	spaceDir: string;
-	apiToken: string;
 	krokiUrl: string;
 	pollInterval: number;
 	maxWriteBytes: number;
@@ -19,7 +18,6 @@ function int(value: string | undefined, fallback: number): number {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): MdwikiConfig {
 	return {
 		spaceDir: path.resolve(env.SPACE_DIR || './space'),
-		apiToken: env.MDWIKI_API_TOKEN ?? '',
 		krokiUrl: (env.KROKI_URL ?? '').replace(/\/+$/, ''),
 		pollInterval: int(env.POLL_INTERVAL, 10_000),
 		maxWriteBytes: int(env.MAX_WRITE_BYTES, 1024 * 1024),

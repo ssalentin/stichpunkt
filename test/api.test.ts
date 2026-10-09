@@ -152,12 +152,13 @@ describe('weak tokens', () => {
 
 	it('logs one error that never contains the token', async () => {
 		const { vi } = await import('vitest');
+		vi.resetModules(); // the warn-once flag is module state; earlier tests may already have set it
 		const auth = await import('../src/lib/server/auth');
 		const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
 		try {
 			expect(auth.configuredToken('short-secret')).toBe('');
 			expect(auth.configuredToken('short-secret')).toBe('');
-			expect(spy.mock.calls.length).toBeLessThanOrEqual(1);
+			expect(spy).toHaveBeenCalledTimes(1);
 			expect(JSON.stringify(spy.mock.calls)).not.toContain('short-secret');
 		} finally {
 			spy.mockRestore();
