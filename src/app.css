@@ -196,10 +196,17 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .task-item[data-checked='true'] { color: var(--muted); }
 input.task { width: 1.3rem; height: 1.3rem; vertical-align: -0.25em; accent-color: var(--accent); margin: 0 0.4rem 0 0; }
 .task-item { padding: 0.15rem 0; }
-.chip { font: 0.75rem var(--mono); color: var(--muted); background: var(--panel); border: 1px dashed var(--border); border-radius: 999px; padding: 0.05rem 0.55rem; }
-.chip-block { margin: 0.8rem 0; }
-.chip-block summary { cursor: pointer; }
-.chip-block pre { opacity: 0.7; }
+.chip { display: inline-flex; align-items: center; gap: 0.35em; font: 0.72rem var(--mono); color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.55rem; line-height: 1.5; }
+.chip.inert::before { content: '⌀'; color: var(--muted); opacity: 0.8; }
+.chip-block { margin: 0.8rem 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.chip-block summary { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; padding: 0.45rem 0.7rem; list-style: none; }
+.chip-block summary::-webkit-details-marker { display: none; }
+.chip-block summary::after { content: '▸'; margin-left: auto; color: var(--muted); transition: transform 120ms ease-out; }
+.chip-block[open] summary::after { transform: rotate(90deg); }
+.chip-block summary .chip { border: 0; background: none; padding: 0; color: var(--fg); }
+.chip-block .chip-meta { color: var(--muted); font: 0.72rem var(--mono); }
+.chip-block pre { margin: 0; border: 0; border-top: 1px solid var(--border); border-radius: 0; background: var(--bg); }
+.chip-block:hover { border-color: color-mix(in srgb, var(--muted) 50%, var(--border)); }
 .props { font-size: 0.8rem; color: var(--muted); margin-bottom: 1rem; }
 .props dl { display: grid; grid-template-columns: max-content 1fr; gap: 0.15rem 1rem; margin: 0.4rem 0; }
 .props dt { color: var(--accent); }

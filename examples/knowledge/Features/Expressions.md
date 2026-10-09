@@ -4,7 +4,7 @@ date: 2026-10-08
 ---
 # Expressions
 
-stichpunkt does **not** evaluate expressions. It recognises exactly four SilverBullet helper calls and renders them as built-in, server-side widgets; every other `${...}` stays an inert chip.
+stichpunkt does not evaluate expressions. It recognises exactly four SilverBullet helper calls and renders them as built-in, server-side widgets from the index. Every other `${...}` is shown as a quiet inline placeholder and is never run.
 
 | Expression | Renders |
 | --- | --- |
@@ -25,4 +25,4 @@ An unknown category shows a warning:
 
 ${kb.section("does-not-exist")}
 
-Anything else stays inert: ${kb.section(someVariable)} and ${1 + 1}.
+Anything else stays a placeholder and is not run: ${kb.section(someVariable)} and ${1 + 1}.
