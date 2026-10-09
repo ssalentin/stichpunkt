@@ -36,6 +36,7 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database â
 - [Operations](#operations)
 - [Architecture](#architecture)
 - [Development](#development)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## What is stichpunkt?
