@@ -9,6 +9,7 @@
 
 A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database — agents write through MCP, you read.
 
+[![CI](https://github.com/ssalentin/stichpunkt/actions/workflows/ci.yml/badge.svg)](https://github.com/ssalentin/stichpunkt/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js ≥ 22](https://img.shields.io/badge/node-%E2%89%A5%2022-5FA04E?logo=nodedotjs&logoColor=white)](https://nodejs.org)
 [![SvelteKit](https://img.shields.io/badge/SvelteKit-FF3E00?logo=svelte&logoColor=white)](https://svelte.dev)
