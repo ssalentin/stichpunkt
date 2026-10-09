@@ -28,14 +28,22 @@ const renderers: Record<string, Renderer> = {
 		}
 	},
 	async 'vega-lite'(el, source) {
-		const [{ default: embed }] = await Promise.all([import('vega-embed')]);
+		const [{ default: embed }, { expressionInterpreter }] = await Promise.all([
+			import('vega-embed'),
+			import('vega-interpreter')
+		]);
 		const spec = JSON.parse(source);
 		el.textContent = '';
 		await embed(el, spec, {
 			mode: 'vega-lite',
 			actions: false,
 			theme: dark() ? 'dark' : undefined,
-			renderer: 'svg'
+			renderer: 'svg',
+			// Vega compiles expressions with the Function constructor by default, which the CSP
+			// forbids. Parsing to an AST and evaluating it with the interpreter is the documented
+			// CSP-compliant route — instead of allowing `unsafe-eval`.
+			ast: true,
+			expr: expressionInterpreter
 		});
 	},
 	async katex(el, source) {
