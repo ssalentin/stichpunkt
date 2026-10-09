@@ -244,17 +244,19 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 
 /* ---- diagrams ---- */
 .diagram { margin: 1rem 0; overflow-x: auto; max-width: 100%; text-align: center; }
-/* never show the raw source: renderers replace the placeholder in place */
+/* never show the raw source: renderers replace the placeholder in place.
+   The shimmer only applies to client-side diagrams; server-rendered Kroki figures
+   (.diagram-svg) are complete on arrival and must not keep a placeholder. */
 .diagram .diagram-src { display: none; }
-.diagram[data-diagram]:not(.diagram-ready):not(.diagram-failed) { min-height: 6rem; display: grid; place-items: center; }
-.diagram[data-diagram]:not(.diagram-ready):not(.diagram-failed)::after {
+.diagram[data-diagram]:not(.diagram-svg):not(.diagram-ready):not(.diagram-failed) { min-height: 6rem; display: grid; place-items: center; }
+.diagram[data-diagram]:not(.diagram-svg):not(.diagram-ready):not(.diagram-failed)::after {
 	content: '';
 	width: 70%; height: 4.5rem; border-radius: 8px;
 	background: linear-gradient(90deg, var(--panel) 25%, color-mix(in srgb, var(--panel) 60%, var(--border)) 50%, var(--panel) 75%);
 	background-size: 200% 100%;
 	animation: diagram-shimmer 1.2s ease-in-out infinite;
 }
-@media (prefers-reduced-motion: reduce) { .diagram[data-diagram]:not(.diagram-ready):not(.diagram-failed)::after { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .diagram[data-diagram]:not(.diagram-svg):not(.diagram-ready):not(.diagram-failed)::after { animation: none; } }
 @keyframes diagram-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .diagram[data-diagram='mermaid'] { background: #0e1116; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
 .diagram[data-diagram='mermaid'] svg { max-width: 100%; height: auto; }
