@@ -12,6 +12,16 @@ async function setup(opts?: Parameters<typeof makeMdwiki>[0]) {
 }
 
 describe('index', () => {
+	it('does not follow directory symlinks: a loop indexes each page once and the scan finishes', async () => {
+		const { mdwiki, dir } = await setup();
+		fs.mkdirSync(path.join(dir, 'Loop'));
+		fs.writeFileSync(path.join(dir, 'Loop/a.md'), 'a');
+		fs.symlinkSync('.', path.join(dir, 'Loop/loop'));
+		fs.symlinkSync('..', path.join(dir, 'Loop/up'));
+		const files = (await mdwiki.store.scan()).map((f) => f.rel).filter((r) => r.startsWith('Loop'));
+		expect(files).toEqual(['Loop/a.md']);
+	});
+
 	it('resolves links by path, case, folder and unique basename; computes backlinks', async () => {
 		const { mdwiki } = await setup();
 		const back = mdwiki.getBacklinks('Server/Alpha').map((b) => b.path);
