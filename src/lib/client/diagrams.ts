@@ -3,9 +3,11 @@
  * Each loader imports its library on first use only, and `preload` starts the
  * fetch early so the diagram appears without showing its source first.
  */
+import { effectiveTheme } from './theme';
+
 type Renderer = (el: HTMLElement, source: string) => Promise<void>;
 
-const dark = () => !window.matchMedia('(prefers-color-scheme: light)').matches;
+const dark = () => effectiveTheme() === 'dark';
 
 let mermaidCounter = 0;
 const renderers: Record<string, Renderer> = {

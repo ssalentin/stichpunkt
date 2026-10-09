@@ -11,11 +11,14 @@
 	--code: #e3b778;
 	--sel: #1f3a52;
 	--danger: #e5534b;
+	--hl-keyword: #c792ea;
+	--hl-string: #8bd49c;
 	--bar-h: 3.4rem;
 	color-scheme: dark;
 }
+/* "System" leaves data-theme unset; an explicit choice sets it (see src/lib/client/theme.ts) */
 @media (prefers-color-scheme: light) {
-	:root {
+	:root:not([data-theme]) {
 		--bg: #f6f3ec;
 		--panel: #ffffff;
 		--fg: #14181f;
@@ -26,8 +29,25 @@
 		--code: #8a4b08;
 		--sel: #f3e2c4;
 		--danger: #c2271d;
+		--hl-keyword: #7b3fb5;
+		--hl-string: #1d7a3a;
 		color-scheme: light;
 	}
+}
+:root[data-theme='light'] {
+	--bg: #f6f3ec;
+	--panel: #ffffff;
+	--fg: #14181f;
+	--muted: #5b6672;
+	--border: #dcd6c8;
+	--accent: #a84f00;
+	--link: #0b5cad;
+	--code: #8a4b08;
+	--sel: #f3e2c4;
+	--danger: #c2271d;
+	--hl-keyword: #7b3fb5;
+	--hl-string: #1d7a3a;
+	color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -161,6 +181,8 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	padding: 0.5rem 0.8rem; min-height: 38px; cursor: pointer; text-decoration: none;
 }
 .btn:hover { border-color: var(--muted); text-decoration: none; }
+.theme-select { font: 1rem var(--mono); color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; min-height: 30px; padding: 0.25rem 0.4rem; }
+@media (min-width: 900px) { .theme-select { font-size: 0.78rem; } } /* 16px below this avoids iOS focus zoom */
 .btn.small { padding: 0.25rem 0.6rem; min-height: 30px; font-size: 0.78rem; }
 .btn.primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .btn.danger { color: var(--danger); }
@@ -316,14 +338,10 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 @media (min-width: 900px) { .versions { grid-template-columns: 1fr 1fr; } }
 
 .hljs-comment, .hljs-quote { color: var(--muted); }
-.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-type, .hljs-name { color: #c792ea; }
-.hljs-string, .hljs-title, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #8bd49c; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-type, .hljs-name { color: var(--hl-keyword); }
+.hljs-string, .hljs-title, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: var(--hl-string); }
 .hljs-number, .hljs-built_in, .hljs-variable, .hljs-template-variable, .hljs-regexp { color: var(--code); }
 .hljs-deletion { color: var(--danger); }
-@media (prefers-color-scheme: light) {
-	.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section, .hljs-doctag, .hljs-type, .hljs-name { color: #7b3fb5; }
-	.hljs-string, .hljs-title, .hljs-attr, .hljs-symbol, .hljs-bullet, .hljs-addition { color: #1d7a3a; }
-}
 
 /* ---- built-in widgets (replace the SilverBullet kb.* helpers) ---- */
 .wg { --hue: var(--accent); background: var(--panel); border: 1px solid var(--border); border-left: 4px solid var(--hue); border-radius: 8px; padding: 0.55rem 0.8rem; margin: 0.8rem 0; font-family: var(--mono); font-size: 0.85rem; }

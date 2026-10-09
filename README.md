@@ -56,6 +56,11 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
 - Installable PWA; the service worker caches the shell and the last ~50 visited pages for offline reading.
 
+**Themes**
+
+- A selector in the header offers Light, Dark and System (default; follows the OS preference). The choice is stored in the browser (`localStorage`) and applied before first paint, so there is no flash on reload.
+- All colours are CSS variables in `src/app.css`; adding another theme means adding one `:root[data-theme='…']` block.
+
 **Diagrams**
 
 - Client-side and lazy: Mermaid, Vega-Lite, KaTeX.
