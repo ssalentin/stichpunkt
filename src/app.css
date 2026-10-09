@@ -14,8 +14,9 @@
 	--bar-h: 3.4rem;
 	color-scheme: dark;
 }
+/* "System" leaves data-theme unset; an explicit choice sets it (see src/lib/client/theme.ts) */
 @media (prefers-color-scheme: light) {
-	:root {
+	:root:not([data-theme]) {
 		--bg: #f6f3ec;
 		--panel: #ffffff;
 		--fg: #14181f;
@@ -28,6 +29,19 @@
 		--danger: #c2271d;
 		color-scheme: light;
 	}
+}
+:root[data-theme='light'] {
+	--bg: #f6f3ec;
+	--panel: #ffffff;
+	--fg: #14181f;
+	--muted: #5b6672;
+	--border: #dcd6c8;
+	--accent: #a84f00;
+	--link: #0b5cad;
+	--code: #8a4b08;
+	--sel: #f3e2c4;
+	--danger: #c2271d;
+	color-scheme: light;
 }
 
 * { box-sizing: border-box; }
@@ -161,6 +175,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	padding: 0.5rem 0.8rem; min-height: 38px; cursor: pointer; text-decoration: none;
 }
 .btn:hover { border-color: var(--muted); text-decoration: none; }
+.theme-select { font: 0.78rem var(--mono); color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; min-height: 30px; padding: 0.25rem 0.4rem; }
 .btn.small { padding: 0.25rem 0.6rem; min-height: 30px; font-size: 0.78rem; }
 .btn.primary { color: var(--bg); background: var(--accent); border-color: var(--accent); }
 .btn.danger { color: var(--danger); }

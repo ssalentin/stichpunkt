@@ -6,6 +6,7 @@
 	import Panel from '#lib/components/Panel.svelte';
 	import Switcher from '#lib/components/Switcher.svelte';
 	import Tree from '#lib/components/Tree.svelte';
+	import { THEMES, setTheme, storedTheme, type Theme } from '#lib/client/theme';
 	import { ui, visit } from '#lib/ui.svelte';
 	import { onMount } from 'svelte';
 
@@ -14,6 +15,7 @@
 	const current = $derived(page.data.name ?? '');
 	const view = $derived(page.data.kind === 'page' ? page.data.view : null);
 	let treeOpen = $state(true);
+	let theme = $state<Theme>('system');
 
 	// breadcrumbs: every folder links to its namespace listing
 	const crumbs = $derived.by(() => {
@@ -26,6 +28,7 @@
 	});
 
 	onMount(() => {
+		theme = storedTheme();
 		treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 	});
@@ -37,6 +40,11 @@
 	function toggleTree() {
 		treeOpen = !treeOpen;
 		localStorage.setItem('stichpunkt.tree', treeOpen ? '1' : '0');
+	}
+
+	function onTheme(e: Event) {
+		theme = (e.currentTarget as HTMLSelectElement).value as Theme;
+		setTheme(theme);
 	}
 
 	function typing(t: EventTarget | null) {
@@ -69,6 +77,9 @@
 				{#if c.href}<a href={c.href}>{c.name}</a>{:else}<span class="here">{c.name}</span>{/if}
 			{/each}
 		</nav>
+		<select class="theme-select" value={theme} onchange={onTheme} aria-label="Theme" title="Theme">
+			{#each THEMES as t}<option value={t.value}>{t.label}</option>{/each}
+		</select>
 		<button class="btn small" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)">Search <kbd>⌘K</kbd></button>
 	</header>
 
