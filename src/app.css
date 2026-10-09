@@ -190,6 +190,9 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .md table { border-collapse: collapse; font-size: 0.92rem; }
 .md th, .md td { border: 1px solid var(--border); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
 .md th { background: var(--panel); }
+/* links inside running text must not rely on colour alone (Lighthouse link-in-text-block); lists, tables and nav stay plain */
+.md p a { text-decoration: underline; text-underline-offset: 0.15em; }
+.md p a.wikilink.missing { text-decoration: underline dotted; }
 .wikilink.missing { color: var(--danger); text-decoration: underline dotted; font-weight: 600; }
 .md ul:has(> .task-item) { list-style: none; padding-left: 0.4rem; }
 .task-item { list-style: none; }
