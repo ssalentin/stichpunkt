@@ -112,8 +112,10 @@ cd stichpunkt
 
 cp .env.example .env             # set MDWIKI_API_TOKEN (openssl rand -base64 32)
 mkdir space                      # or copy your markdown directory here
-docker compose up -d --build
+STICHPUNKT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
 ```
+
+The footer shows the app version and the commit the build comes from. The Docker build has no `.git`, so pass the commit as shown; without it the footer says `unknown`.
 
 The sample [`compose.yml`](compose.yml) starts stichpunkt (port 3000 inside the container) and an internal Kroki container for server-side diagrams. **It does not publish a port** — put your reverse proxy in front (see [Reverse-proxy contract](#reverse-proxy-contract)).
 

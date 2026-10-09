@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handle } from '../src/hooks.server';
 import { buildMcpServer } from '../src/lib/server/mcp';
+import { mcpVersion } from '../src/lib/version';
 import { makeMdwiki } from './helpers';
 
 const TOKEN = 'test-token-0123456789-0123456789-abcdef';
@@ -394,6 +395,13 @@ describe('MCP', () => {
 		return client;
 	}
 	const text = (r: unknown) => JSON.parse(((r as { content: { text: string }[] }).content[0]).text);
+
+	it('reports the build in serverInfo.version', async () => {
+		const client = await connect();
+		const version = client.getServerVersion()?.version;
+		expect(version).toMatch(/^\d+\.\d+\.\d+(\+[0-9a-f]{7})?$/);
+		expect(version).toBe(mcpVersion());
+	});
 
 	it('lists every tool of the spec', async () => {
 		const client = await connect();

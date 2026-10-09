@@ -2,7 +2,10 @@
 # Copy .env.example to .env and fill MDWIKI_API_TOKEN before `docker compose up -d`.
 services:
   stichpunkt:
-    build: .
+    build:
+      context: .
+      args:
+        STICHPUNKT_COMMIT: ${STICHPUNKT_COMMIT:-}
     restart: unless-stopped
     env_file: .env
     environment:
