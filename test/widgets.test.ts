@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { matchWidget } from '../src/lib/server/markdown';
+import { widgetQuery } from '../src/lib/server/widgets';
 import { makeMdwiki } from './helpers';
 
 const open: { stop(): void }[] = [];
@@ -23,6 +24,16 @@ async function setup(pages: Record<string, string>) {
 	await made.mdwiki.index.refresh();
 	return made;
 }
+
+describe('widgets as query presets', () => {
+	it('maps each kb.* widget to a fixed pages query', () => {
+		expect(widgetQuery({ kind: 'recent', tag: 'server', limit: 5 })).toEqual({ tag: 'server', sort: 'date desc', limit: 5, show: 'list' });
+		expect(widgetQuery({ kind: 'section', tag: 'server' })).toEqual({ tag: 'server', show: 'count' });
+		// header and categories are not a page query; they keep their own built-in rendering
+		expect(widgetQuery({ kind: 'header' }).show).toBe('count');
+		expect(widgetQuery({ kind: 'categories' }).show).toBe('count');
+	});
+});
 
 describe('widget recognition', () => {
 	it('matches the four shapes and the short forms', () => {

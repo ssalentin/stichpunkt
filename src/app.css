@@ -340,6 +340,13 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 .wg-card { min-width: 0; display: flex; align-items: center; gap: 0.6rem; margin: 0; color: var(--fg); }
 .wg-card:hover { text-decoration: none; border-color: var(--hue); }
 .wg-card .wg-meta { margin-left: auto; }
+.wg-query { margin: 0.8rem 0; }
+.wg-query.wg-count { color: var(--muted); }
+.wg-query.wg-count strong { color: var(--fg); font-size: 1.15rem; }
+.wg-query .muted { margin: 0.2rem 0; }
+.wg-query-error { padding: 0.7rem 0.9rem; border: 1px solid color-mix(in srgb, var(--code) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--code) 8%, transparent); }
+.wg-query-error strong { color: var(--code); }
+.wg-query-error pre { margin: 0.5rem 0 0; overflow-x: auto; }
 
 /* ---- home / index landing ---- */
 .home { max-width: 48rem; margin: 0 auto; padding: 1rem 0 2rem; }

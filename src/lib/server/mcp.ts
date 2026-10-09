@@ -83,6 +83,24 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		({ path }) => run(() => mdwiki.getBacklinks(path))
 	);
 	server.registerTool(
+		'query_pages',
+		{
+			description:
+				'Run the declarative page query used by the `pages` block: filter by tag, folder or links-to, sort, limit, and show as list, table or count. Same schema and filter names as search.',
+			inputSchema: {
+				tag: z.union([z.string(), z.array(z.string())]).optional(),
+				folder: z.string().optional(),
+				'links-to': z.string().optional(),
+				sort: z.string().optional(),
+				limit: z.number().int().optional(),
+				show: z.enum(['list', 'table', 'count']).optional(),
+				columns: z.array(z.string()).optional(),
+				self: z.string().optional()
+			}
+		},
+		({ self, ...query }) => run(() => mdwiki.queryPages(query, self ?? ''))
+	);
+	server.registerTool(
 		'upload_attachment',
 		{
 			description:
