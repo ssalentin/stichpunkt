@@ -65,6 +65,7 @@ a:hover { text-decoration: underline; }
 h1, h2, h3, h4, h5, h6, .brand, .bar, .top, .left, .right, kbd, code, pre { font-family: var(--mono); }
 h1, h2, h3 { line-height: 1.25; }
 .muted { color: var(--muted); }
+.build { margin-top: 3rem; font: 0.72rem var(--mono); text-align: center; }
 .pad { padding: 0.5rem 0.75rem; }
 kbd { font-size: 0.7em; color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 0.3em; }
 
