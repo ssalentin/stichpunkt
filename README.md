@@ -2,7 +2,7 @@
 
 A small, fast, self-hosted markdown wiki. Plain `.md` files are the database; the server renders pages to HTML, keeps an in-memory index, and exposes the same operations over a web UI, a REST API (`/api/v1`) and an MCP server (`/mcp`).
 
-*Punkt für Punkt.* — every thought is one point; wikilinks stitch the points into a fabric.
+*Notes that stay in order.* — a fast, minimal markdown wiki where agents write and you read.
 
 SvelteKit + TypeScript, `adapter-node`, one container (plus an internal Kroki container for server-side diagrams).
 

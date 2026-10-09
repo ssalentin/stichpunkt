@@ -8,7 +8,13 @@ const root = path.resolve(__dirname, '..');
 describe('brand (stichpunkt)', () => {
 	it('uses the display name and tagline from one module', () => {
 		expect(BRAND).toBe('stichpunkt');
-		expect(BRAND_TAGLINE).toBe('Punkt für Punkt.');
+		expect(BRAND_TAGLINE).toBe('Notes that stay in order.');
+	});
+
+	it('keeps the tagline English and free of the brand word', () => {
+		// Sebastian: the tagline must be English and must not repeat "point"/"stich"
+		expect(BRAND_TAGLINE).not.toMatch(/punkt|point|stich/i);
+		expect(BRAND_TAGLINE).toMatch(/^[\x20-\x7E]+$/); // ASCII/English only
 	});
 
 	it('keeps the dark palette from the design', () => {

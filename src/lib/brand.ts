@@ -4,8 +4,8 @@
  * rename or a new tagline is a single change.
  */
 export const BRAND = 'stichpunkt';
-export const BRAND_TAGLINE = 'Punkt für Punkt.';
-export const BRAND_DESCRIPTION = 'A fast, minimal markdown wiki. One point at a time, stitched together.';
+export const BRAND_TAGLINE = 'Notes that stay in order.';
+export const BRAND_DESCRIPTION = 'A fast, minimal markdown wiki over plain files.';
 
 /** Brand palette (dark is the default theme; see IS-172). */
 export const BRAND_COLORS = {
