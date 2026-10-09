@@ -315,8 +315,13 @@ export class Mdwiki {
 		// every placeholder gets a rendering; past the limit it is the red error chip
 		const out = exprs.map((ex, i) => (i < MAX_EXPRS_PER_PAGE ? renderExpression(ex, ctx) : exprErrorChip(limited, ex.source)));
 		// the placeholder is an inline token: replace it inside its paragraph first, then anywhere
+		// a block result (a page list) replaces its whole paragraph, like a widget; inline stays inside
+		const isBlock = (h: string) => /^<(ul|ol|div|table)[\s>]/.test(h);
 		return html
-			.replace(/<p><!--expr:(\d+)--><\/p>/g, (_m, id) => `<p>${out[Number(id)] ?? ''}</p>`)
+			.replace(/<p><!--expr:(\d+)--><\/p>/g, (_m, id) => {
+				const h = out[Number(id)] ?? '';
+				return isBlock(h) ? h : `<p>${h}</p>`;
+			})
 			.replace(/<!--expr:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
@@ -400,7 +405,6 @@ const todayKey = (now = new Date()) => now.toISOString().slice(0, 10);
 
 /** Renders one collected expression to inline HTML, degrading any failure to an error chip. */
 function renderExpression(ex: ExprSource, ctx: EvalContext): string {
-	if (!ex.placeholder) return `<span class="chip inert" title="${escapeHtml(ex.raw)}">expression · not run</span>`;
 	try {
 		const parsed = parseExpr(ex.source);
 		const value = evaluateNode(parsed.node, ctx);

@@ -1,4 +1,3 @@
-import { escapeHtml } from './markdown';
 import { parsePagesQuery, runPagesQuery, type PagesResult, type PagesRow } from './pages-query';
 import type { PageRec, SpaceIndex } from './space';
 
@@ -102,7 +101,7 @@ interface Token {
 	v: string;
 }
 
-const PUNCT = ['==', '!=', '<=', '>=', '??', '&&', '||', '+', '-', '*', '/', '%', '<', '>', '(', ')', '[', ']', '{', '}', ',', '.', ':', '?'];
+const PUNCT = ['==', '!=', '<=', '>=', '??', '+', '-', '*', '/', '%', '<', '>', '(', ')', '[', ']', '{', '}', ',', '.', ':', '?'];
 
 class Lexer {
 	pos = 0;
@@ -152,7 +151,7 @@ class Lexer {
 		}
 		if (/[A-Za-z_]/.test(c)) {
 			let i = this.pos;
-			while (i < s.length && /[A-Za-z0-9_-]/.test(s[i])) i++;
+			while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++;
 			this.pos = i;
 			return { t: 'name', v: s.slice(start, i) };
 		}
@@ -241,8 +240,8 @@ class Parser {
 			}
 		}
 		if (t.t === 'name') {
-			if (t.v === 'or' || t.v === '||') return 4;
-			if (t.v === 'and' || t.v === '&&') return 5;
+			if (t.v === 'or') return 4;
+			if (t.v === 'and') return 5;
 		}
 		return 0;
 	}
@@ -309,7 +308,7 @@ class Parser {
 			if (t.v === 'null') return { k: 'null' };
 			if (t.v === 'this') return { k: 'this' };
 			if (t.v === 'not') return { k: 'un', op: 'not', e: this.expression(6) };
-			if (t.v === 'and' || t.v === 'or' || t.v === '&&' || t.v === '||') throw new ExprParseError(`unexpected "${t.v}"`);
+			if (t.v === 'and' || t.v === 'or') throw new ExprParseError(`unexpected "${t.v}"`);
 			return { k: 'name', name: t.v };
 		}
 		switch (t.v) {
@@ -578,14 +577,14 @@ function callBuiltin(name: string, args: Value[], m: Machine): Value {
 			arity(1, 2);
 			const items = listItems(args[0], 'join');
 			const sep = args.length === 2 ? requireString(args[1], 'join separator') : ', ';
-			return items.map((x) => scalarText(x)).join(sep);
+			return checkLen(items.map((x) => scalarText(x)).join(sep));
 		}
 		case 'lower':
 			arity(1);
-			return requireString(args[0], 'lower').toLowerCase();
+			return checkLen(requireString(args[0], 'lower').toLowerCase());
 		case 'upper':
 			arity(1);
-			return requireString(args[0], 'upper').toUpperCase();
+			return checkLen(requireString(args[0], 'upper').toUpperCase());
 		case 'round':
 			arity(2);
 			return roundTo(num(args[0], 'round'), num(args[1], 'round digits'));
@@ -606,10 +605,12 @@ function callBuiltin(name: string, args: Value[], m: Machine): Value {
 			const d = dateOf(args[0], 'fmt_date');
 			const raw = requireString(args[1], 'fmt_date pattern');
 			if (/[YMD]/.test(raw.replace(/YYYY|MM|DD/g, ''))) throw new ExprRuntimeError('fmt_date pattern knows only YYYY, MM and DD');
-			return raw
-				.replace(/YYYY/g, String(d.getUTCFullYear()).padStart(4, '0'))
-				.replace(/MM/g, String(d.getUTCMonth() + 1).padStart(2, '0'))
-				.replace(/DD/g, String(d.getUTCDate()).padStart(2, '0'));
+			return checkLen(
+				raw
+					.replace(/YYYY/g, String(d.getUTCFullYear()).padStart(4, '0'))
+					.replace(/MM/g, String(d.getUTCMonth() + 1).padStart(2, '0'))
+					.replace(/DD/g, String(d.getUTCDate()).padStart(2, '0'))
+			);
 		}
 		case 'link': {
 			arity(1, 2);
@@ -623,9 +624,15 @@ function callBuiltin(name: string, args: Value[], m: Machine): Value {
 	}
 }
 
+/** A string over {@link MAX_STRING_CHARS} is a runtime error, checked on every step that grows one. */
+function checkLen(s: string): string {
+	if (s.length > MAX_STRING_CHARS) throw new ExprRuntimeError(`string longer than ${MAX_STRING_CHARS} characters`);
+	return s;
+}
+
 function runQuery(q: { rec: Map<string, Value> }, m: Machine): PagesResult {
-	const raw: Record<string, unknown> = {};
-	for (const [k, v] of q.rec.entries()) raw[k] = toRaw(v, m.ctx.self);
+	// fromEntries defines own keys, so a key like `__proto__` stays a key and trips `.strict()`
+	const raw = Object.fromEntries([...q.rec.entries()].map(([k, v]) => [k, toRaw(v, m.ctx.self)]));
 	let parsed;
 	try {
 		parsed = parsePagesQuery(raw);
@@ -645,9 +652,7 @@ function toRaw(v: Value, self = ''): unknown {
 	if (v === null || typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string') return v;
 	if (Array.isArray(v)) return v.map((x) => toRaw(x, self));
 	if (isMap(v)) {
-		const obj: Record<string, unknown> = {};
-		for (const [k, val] of v.rec.entries()) obj[k] = toRaw(val, self);
-		return obj;
+		return Object.fromEntries([...v.rec.entries()].map(([k, val]) => [k, toRaw(val, self)]));
 	}
 	if (isPageValue(v)) return self && v.path === self ? 'this' : v.path;
 	if (isLinkValue(v)) return v.path;
@@ -721,11 +726,11 @@ function evalNode(node: Node, m: Machine): Value {
 
 function evalBinary(node: Extract<Node, { k: 'bin' }>, m: Machine): Value {
 	const op = node.op;
-	if (op === 'and' || op === '&&') {
+	if (op === 'and') {
 		const l = evalNode(node.l, m);
 		return truthy(l) ? evalNode(node.r, m) : l;
 	}
-	if (op === 'or' || op === '||') {
+	if (op === 'or') {
 		const l = evalNode(node.l, m);
 		return truthy(l) ? l : evalNode(node.r, m);
 	}
@@ -738,7 +743,7 @@ function evalBinary(node: Extract<Node, { k: 'bin' }>, m: Machine): Value {
 	switch (op) {
 		case '+':
 			if (typeof l === 'number' && typeof r === 'number') return l + r;
-			if (typeof l === 'string' && typeof r === 'string') return l + r;
+			if (typeof l === 'string' && typeof r === 'string') return checkLen(l + r);
 			throw new ExprRuntimeError('"+" needs two numbers or two strings');
 		case '-':
 			return num(l, '-') - num(r, '-');

@@ -52,6 +52,8 @@ An escape like `\n`, `\"`, `\'` and `\\` works inside a string.
 | `${page("Projects/Alpha").fm.budget}` | ${page("Projects/Alpha").fm.budget} |
 | `${page("Nope").title}` | ${page("Nope").title} |
 
+A name is `[A-Za-z_][A-Za-z0-9_]*`; `-` is always the minus operator, so `this.fm.budget-10` subtracts. A key with a hyphen is quoted: `this.fm."due-date"`, `{"links-to": this}`. `today()` uses UTC.
+
 ## Builtins
 
 | Builtin | Meaning | Live |

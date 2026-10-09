@@ -92,6 +92,14 @@ describe('parser: binding power', () => {
 	});
 });
 
+describe('parser: identifiers', () => {
+	it('a hyphen after a name is the minus operator', async () => {
+		await ctxFor({ 'Query.md': '---\nbudget: 100\n"due-date": 2026-10-01\n---\n# Query\n' });
+		expect(evalS('this.fm.budget - 10')).toBe(90);
+		expect(evalS('this.fm.budget-10')).toBe(90);
+	});
+});
+
 describe('parser: literals and escapes', () => {
 	it('parses numbers including decimals and exponents', async () => {
 		await ctxFor();
@@ -251,6 +259,21 @@ describe('security', () => {
 		expect(({} as Record<string, unknown>).polluted).toBeUndefined();
 	});
 
+	it('a __proto__ key in a query is an unrecognized key, not a prototype', async () => {
+		await ctxFor({ 'Projects/A.md': '---\ntags: [project]\n---\nx\n', 'Query.md': '# Query\n' });
+		expect(() => evalS('count({__proto__: {folder: "Projects"}})')).toThrow(/Unrecognized key|unrecognized/i);
+		const { mdwiki } = await setup({ 'Projects/A.md': 'x\n', 'Query.md': '\n${count({__proto__: {folder: "X"}})}\n' });
+		expect((await mdwiki.renderPage('Query'))!.html).toContain('class="chip error"');
+	});
+
+	it('link() cannot leave the origin', () => {
+		for (const p of ['/evil.example', '//evil.example', '\\evil.example']) {
+			const html = renderValue({ kind: 'link', path: p, label: 'x' });
+			expect(html).toContain('href="/evil.example"');
+			expect(html).not.toContain('href="//');
+		}
+	});
+
 	it('escapes HTML in titles and frontmatter values', async () => {
 		const html = `<img src=x onerror=alert(1)>`;
 		await ctxFor({ 'Evil.md': `---\ntitle: "${html.replace(/"/g, '')}"\nnote: "<script>1</script>"\n---\nx\n`, 'Query.md': '# Query\n' });
@@ -325,6 +348,16 @@ describe('limits', () => {
 		});
 		const v = (await mdwiki.renderPage('Query'))!;
 		expect(v.html).toContain(`query limit reached (${MAX_ENGINE_QUERIES} per page)`);
+	});
+
+	it('an intermediate string over 10000 characters is a runtime error', async () => {
+		await ctxFor({ 'Query.md': `---\nbig: ${'x'.repeat(6000)}\n---\n# Query\n` });
+		const big = 'this.fm.big';
+		expect(() => evalS(`${big} + ${big}`)).toThrow(/string longer than 10000/);
+		expect(() => evalS(`join([${big}, ${big}], "")`)).toThrow(/string longer than 10000/);
+		expect(() => evalS(`len(${big} + ${big})`)).toThrow(/string longer than 10000/);
+		expect(() => evalS(`fmt_date(today(), ${big} + ${big})`)).toThrow(/string longer than 10000/);
+		expect(evalS(`len(upper(${big}))`)).toBe(6000);
 	});
 
 	it('a string result is capped at 10000 characters', async () => {
@@ -421,6 +454,20 @@ describe('cache', () => {
 		}
 	});
 
+	it('a page with only a quiet lua remnant keeps its cache key', async () => {
+		const { mdwiki, dir } = await setup({ 'Quiet.md': '# Quiet\n\n${x = 1}\n' });
+		const first = (await mdwiki.renderPage('Quiet'))!;
+		expect(first.html).toContain('expression · not run');
+		fs.writeFileSync(path.join(dir, 'Other.md'), '# Other\n');
+		await mdwiki.index.refresh();
+		await mdwiki.renderPage('Quiet');
+		// quiet chips are not expressions: they neither take the 50 limit nor key the cache
+		const many = Array.from({ length: 55 }, () => '${x = 1}').join('\n\n');
+		fs.writeFileSync(path.join(dir, 'Many.md'), `\n${many}\n`);
+		await mdwiki.index.refresh();
+		expect((await mdwiki.renderPage('Many'))!.html).not.toContain('chip error');
+	});
+
 	it('a page without expressions keeps its cache key (no version bump needed)', async () => {
 		const { mdwiki, dir } = await setup({ 'Plain.md': '# Plain\n\nno expressions here\n' });
 		const first = (await mdwiki.renderPage('Plain'))!;
@@ -489,6 +536,16 @@ describe('page integration', () => {
 		expect(v.html).toContain('<p>offen</p>'); // status
 		expect(v.html).toContain('<p>350.5</p>'); // sum budget
 		expect(v.html).not.toContain('chip error');
+	});
+
+	it('a page list alone in its paragraph is not wrapped in <p>', async () => {
+		const { mdwiki } = await setup({
+			'Query.md': '\n${pages({tag: "listtag"})}\n',
+			'L/One.md': '---\ntags: [listtag]\n---\nx\n'
+		});
+		const html = (await mdwiki.renderPage('Query'))!.html;
+		expect(html).toContain('wg-list');
+		expect(html).not.toMatch(/<p>\s*<div/);
 	});
 
 	it('does not run expressions inside a fenced code block', async () => {

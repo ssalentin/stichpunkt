@@ -7,14 +7,14 @@ status: active
 
 Realistic cases, each with its source in backticks next to the live result.
 
-## Count by status
+## Counting pages
 
-How many projects are active, planned or shipped:
+How many pages match:
 
-- active: ${count({tag: "project"})} projects in total
-- with a budget: ${count({folder: "Projects"})} pages under `Projects`
+- projects in total: ${count({tag: "project"})}
+- pages under `Projects`: ${count({folder: "Projects"})}
 
-`${count({tag: "project"})}` counts every page tagged `project`, before any `limit`. The `count` builtin is the same number a `pages` block shows with `show: count`.
+`${count({tag: "project"})}` counts every page tagged `project`, before any `limit`. The `count` builtin is the same number a `pages` block shows with `show: count`. Counting by status (active, planned, shipped) is not possible yet: the query has no frontmatter filter.
 
 ## A frontmatter sum
 
@@ -36,11 +36,13 @@ Offen seit ${days(this.fm.date, today())} Tagen. Seit dem ${fmt_date(this.fm.dat
 
 The newest project, listed as a link:
 
-${link("Projects/Alpha", "Newest project")}
+${pages({tag: "project", sort: "date desc", limit: 1})}
 
-`link(path, label)` makes a wikilink anchor. To pick the newest page of a tag automatically, a `pages` block with `sort: date desc` and `limit: 1` is the tool; a short expression renders the whole list instead:
+`sort: date desc` with `limit: 1` picks the newest page, and a one-element page list renders as a single link. With `limit: 3` the same expression renders the three newest:
 
 ${pages({tag: "project", sort: "date desc", limit: 3})}
+
+`link(path, label)` makes a wikilink to a fixed path with a label of your choice: ${link("Projects/Alpha", "Alpha")}.
 
 ## In a table cell and in a heading
 
@@ -54,4 +56,4 @@ The count works anywhere inline, including inside a table:
 
 ### Today is ${fmt_date(today(), "DD.MM.YYYY")}
 
-A heading can contain an expression too. The heading text is plain: an expression in a heading is evaluated and its text ends up in the outline.
+A heading can contain an expression too and it is evaluated in the page. The outline and the heading anchor are built from the source text, so the heading above appears there as "Today is".

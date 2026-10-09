@@ -116,18 +116,12 @@ export interface RenderEnv {
 
 
 /**
- * An expression collected during rendering. `placeholder` is true when the body is valid (the
- * service will try to run it); false means it stays the quiet "not run" chip (unknown `kb.*`
- * call or a Lua remnant that does not parse). Over-long / too-deep bodies are still placeholders
- * and fail later into the red chip.
+ * An expression collected during rendering. Only bodies that parse (or fail a parse limit) are
+ * collected; the service runs them. Everything else is the quiet "not run" chip and never lands here.
  */
 export interface ExprSource {
 	/** raw source exactly as written, without the surrounding `${` and `}` */
 	source: string;
-	/** raw `${...}` text, for the error chip title */
-	raw: string;
-	/** true when the body parses (the service will try to run it) */
-	placeholder: boolean;
 	/** true when the AST calls `today()` (keys the render cache by day) */
 	usesToday: boolean;
 }
@@ -457,10 +451,10 @@ export function createMarkdown() {
 			// an over-long / too-deep body is a real expression that failed: let it become a red chip
 			placeholder = err instanceof ExprRuntimeError;
 		}
+		if (!placeholder) return chipHtml(content);
 		const list = (env.exprs ??= []);
-		list.push({ source: inner, raw: content, placeholder, usesToday: placeholder && usesToday });
-		if (placeholder) return `<!--expr:${list.length - 1}-->`;
-		return chipHtml(content);
+		list.push({ source: inner, usesToday });
+		return `<!--expr:${list.length - 1}-->`;
 	};
 	const chipHtml = (content: string) =>
 		`<span class="chip inert" title="${escapeHtml(content)}">expression · not run</span>`;

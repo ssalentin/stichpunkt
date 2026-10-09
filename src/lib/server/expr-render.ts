@@ -9,7 +9,8 @@ import type { LinkValue, PageValue, Value } from './expr';
  */
 
 const e = escapeHtml;
-const href = (path: string) => '/' + encodeURI(path);
+// leading slashes would turn `//host` into a protocol-relative (external) link
+const href = (path: string) => '/' + encodeURI(path.replace(/^[/\\]+/, ''));
 const anchor = (path: string, label: string) => `<a class="wikilink" href="${href(path)}">${e(label)}</a>`;
 
 const isPage = (v: Value): v is PageValue => typeof v === 'object' && v !== null && (v as PageValue).kind === 'page';
@@ -44,10 +45,6 @@ export function renderValueText(v: Value): string {
 	if (isPage(v)) return anchor(v.path, v.title || v.path);
 	if (isLink(v)) return anchor(v.path, v.label || v.path);
 	if (Array.isArray(v)) {
-		// a list of scalar values is comma-separated; anything else falls back to its text
-		if (v.every((x) => !Array.isArray(x) && !(typeof x === 'object' && x !== null))) {
-			return e(v.map((x) => scalarText(x)).join(', '));
-		}
 		return e(v.map((x) => scalarText(x)).join(', '));
 	}
 	// a record: key = value pairs, escaped
@@ -105,7 +102,5 @@ export function valueToJson(v: Value, index?: SpaceIndex): unknown {
 	if (isPage(v)) return { path: v.path, title: v.title, folder: v.folder, tags: v.tags, date: v.date, modified: v.modified };
 	if (isLink(v)) return { link: v.path, label: v.label };
 	if (Array.isArray(v)) return v.map((x) => valueToJson(x, index));
-	const obj: Record<string, unknown> = {};
-	for (const [k, val] of v.rec.entries()) obj[k] = valueToJson(val, index);
-	return obj;
+	return Object.fromEntries([...v.rec.entries()].map(([k, val]) => [k, valueToJson(val, index)]));
 }
