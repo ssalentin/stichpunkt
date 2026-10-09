@@ -28,7 +28,7 @@
 	}
 
 	function submit() {
-		goto(`/search?q=${encodeURIComponent(q)}`, { keepFocus: true });
+		goto(`/search?q=${encodeURIComponent(q)}`, { reset: false });
 	}
 
 	/** refine the current query with a facet without losing the rest */

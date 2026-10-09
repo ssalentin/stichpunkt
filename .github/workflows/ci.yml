@@ -18,9 +18,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # `svelte-check` currently reports pre-existing type errors on main; see
-      # the follow-up issue before making this blocking.
       - run: npm run check
-        continue-on-error: true
       - run: npm test
       - run: npm run build

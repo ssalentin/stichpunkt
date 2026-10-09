@@ -51,7 +51,7 @@ const req = (method: string, url: string, body?: unknown, headers: Record<string
 	new Request(`http://localhost${url}`, {
 		method,
 		headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json', ...headers },
-		body: body === undefined ? undefined : typeof body === 'string' || body instanceof Uint8Array ? body : JSON.stringify(body)
+		body: body === undefined ? undefined : typeof body === 'string' ? body : body instanceof Uint8Array ? new Uint8Array(body) : JSON.stringify(body)
 	});
 
 const call = (handler: Function, request: Request, params: Record<string, string> = {}) =>
