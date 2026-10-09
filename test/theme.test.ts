@@ -10,6 +10,11 @@ const ROOT = path.resolve(__dirname, '..');
 function fakeBrowser(stored: string | null, prefersLight = false) {
 	const store = new Map<string, string>(stored ? [['stichpunkt.theme', stored]] : []);
 	const metas: any[] = [];
+	// as in app.html: one media-conditional tag per scheme
+	for (const [media, content] of [['(prefers-color-scheme: dark)', '#0e1116'], ['(prefers-color-scheme: light)', '#f6f3ec']]) {
+		const m: any = { name: 'theme-color', media, content, remove: () => metas.splice(metas.indexOf(m), 1) };
+		metas.push(m);
+	}
 	const root: any = { dataset: {} as Record<string, string> };
 	const document: any = {
 		documentElement: root,
@@ -49,6 +54,7 @@ describe('theme selector', () => {
 		expect(b.root.dataset.theme).toBe('light');
 		expect(storedTheme()).toBe('light');
 		expect(b.metas).toHaveLength(1);
+		expect(b.metas[0].content).toBe('#f6f3ec');
 	});
 
 	it('system clears the override again', () => {
@@ -85,6 +91,13 @@ describe('pre-paint theme-init script', () => {
 		expect(run('dark').root.dataset.theme).toBe('dark');
 	});
 
+	it('leaves exactly one theme-color tag for the stored choice', () => {
+		const b = run('dark');
+		expect(b.metas).toHaveLength(1);
+		expect(b.metas[0].content).toBe('#0e1116');
+		expect(b.metas[0].media).toBeUndefined();
+	});
+
 	it('leaves system and junk values alone', () => {
 		expect(run(null).root.dataset.theme).toBeUndefined();
 		expect(run('neon').root.dataset.theme).toBeUndefined();
@@ -93,5 +106,29 @@ describe('pre-paint theme-init script', () => {
 	it('is loaded as an external script, because the CSP forbids inline ones', () => {
 		const html = fs.readFileSync(path.join(ROOT, 'src/app.html'), 'utf8');
 		expect(html).toContain('<script src="/theme-init.js"></script>');
+	});
+});
+
+describe('palette in app.css', () => {
+	const css = fs.readFileSync(path.join(ROOT, 'src/app.css'), 'utf8');
+	const vars = (block: string) => [...block.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map((m) => `${m[1]}:${m[2].trim()}`).sort();
+
+	it('has a single prefers-color-scheme query, so theme colours live in the palette blocks only', () => {
+		expect(css.match(/prefers-color-scheme/g)).toHaveLength(1);
+	});
+
+	it('declares the same light palette for the OS query and for data-theme=light', () => {
+		const media = css.match(/@media \(prefers-color-scheme: light\) \{\s*:root:not\(\[data-theme\]\) \{([^}]*)\}/);
+		const explicit = css.match(/:root\[data-theme='light'\] \{([^}]*)\}/);
+		expect(media).not.toBeNull();
+		expect(explicit).not.toBeNull();
+		expect(vars(media![1])).toEqual(vars(explicit![1]));
+	});
+
+	it('defines every light variable (incl. syntax colours) in the dark default as well', () => {
+		const dark = css.match(/^:root \{([^}]*)\}/m)![1];
+		const light = css.match(/:root\[data-theme='light'\] \{([^}]*)\}/)![1];
+		const names = (b: string) => vars(b).map((v) => v.split(':')[0]);
+		for (const n of names(light).filter((n) => n !== '--bar-h')) expect(names(dark)).toContain(n);
 	});
 });

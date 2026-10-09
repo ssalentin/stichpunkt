@@ -1,3 +1,5 @@
+import { BRAND_COLORS } from '#lib/brand';
+
 export type Theme = 'system' | 'light' | 'dark';
 
 export const THEMES: { value: Theme; label: string }[] = [
@@ -8,7 +10,7 @@ export const THEMES: { value: Theme; label: string }[] = [
 
 // keep in sync with static/theme-init.js, which applies the stored choice before first paint
 const KEY = 'stichpunkt.theme';
-const COLORS = { dark: '#0e1116', light: '#f6f3ec' };
+const COLORS = { dark: BRAND_COLORS.dark.bg.toLowerCase(), light: BRAND_COLORS.light.bg.toLowerCase() };
 
 export function storedTheme(): Theme {
 	try {

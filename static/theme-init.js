@@ -5,9 +5,8 @@
 		var t = localStorage.getItem('stichpunkt.theme');
 		if (t === 'light' || t === 'dark') {
 			document.documentElement.dataset.theme = t;
-			var m = document.querySelector('meta[name="theme-color"]');
-			if (m) m.remove();
-			m = document.createElement('meta');
+			document.querySelectorAll('meta[name="theme-color"]').forEach(function (old) { old.remove(); });
+			var m = document.createElement('meta');
 			m.name = 'theme-color';
 			m.content = t === 'dark' ? '#0e1116' : '#f6f3ec';
 			document.head.appendChild(m);
