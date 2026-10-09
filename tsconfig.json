@@ -1,0 +1,12 @@
+{
+ "extends": "$app/tsconfig",
+ "compilerOptions": {},
+ "include": [
+  "src",
+  "test",
+  "*.ts"
+ ],
+ "exclude": [
+  "src/service-worker"
+ ]
+}
