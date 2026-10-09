@@ -198,6 +198,11 @@ input.task { width: 1.3rem; height: 1.3rem; vertical-align: -0.25em; accent-colo
 .task-item { padding: 0.15rem 0; }
 .chip { display: inline-flex; align-items: center; gap: 0.35em; font: 0.72rem var(--mono); color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 0.1rem 0.55rem; line-height: 1.5; }
 .chip.inert::before { content: '⌀'; color: var(--muted); opacity: 0.8; }
+.chip.error { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); border-color: color-mix(in srgb, var(--danger) 45%, transparent); align-items: baseline; }
+.chip.error::before { content: '⚠'; }
+.chip.error strong { font-weight: 600; }
+.chip.error code { margin-left: 0.4em; color: var(--fg); background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 4px; padding: 0 0.3em; overflow-wrap: anywhere; }
+.expr-null { font-style: normal; opacity: 0.7; }
 .chip-block { margin: 0.8rem 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); overflow: hidden; }
 .chip-block summary { display: flex; align-items: center; gap: 0.6rem; cursor: pointer; padding: 0.45rem 0.7rem; list-style: none; }
 .chip-block summary::-webkit-details-marker { display: none; }

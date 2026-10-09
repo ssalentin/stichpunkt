@@ -15,8 +15,11 @@ The wiki is read only in the browser. Agents write through **MCP** (`POST /mcp`,
 | `delete_page` | delete |
 | `list_tags` / `pages_by_tag` | tags |
 | `get_backlinks` | who links here |
+| `evaluate` | run one `${...}` expression and return its value plus text |
 | `upload_attachment` | store an image or PDF |
 
 `write_page` with a stale `base_hash` fails with a **409 conflict** that carries the current version, so an agent never silently overwrites another agent's change. The same operations exist as REST under `/api/v1`.
+
+The `evaluate` tool takes `{expr, page}` (`page` sets `this`) and returns `{value, text}`: the JSON projection and the rendered text form. `POST /api/v1/eval` has the same contract and is read only, so an agent can test an expression before writing it into a page. See [[Features/Expressions]].
 
 Files changed directly on disk appear after the next poll (default 10 s).

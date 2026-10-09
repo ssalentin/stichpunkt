@@ -57,8 +57,6 @@ describe('widget recognition', () => {
 		'${(kb and kb.safe("L", function() return kb.recent("a", n) end)) or "x"}',
 		'${(kb and kb.safe("L", function() os.exit() return kb.recent("a", 5) end)) or "x"}',
 		'${(kb and kb.safe("L", kb.other)) or "x"}',
-		'${1 + 1}',
-		'${team.openTasks()}',
 		'${kb.header(1)}'
 	])('leaves %s as an inert chip', async (expr) => {
 		expect(matchWidget(expr)).toBeNull();
@@ -66,6 +64,21 @@ describe('widget recognition', () => {
 		const v = await mdwiki.renderPage('T');
 		expect(v!.html).toContain('class="chip inert"');
 		expect(v!.html).not.toContain('class="wg');
+	});
+
+	it('runs a body that is not a kb remnant: ${1 + 1} now evaluates', async () => {
+		expect(matchWidget('${1 + 1}')).toBeNull();
+		const { mdwiki } = await setup({ 'T.md': '\n${1 + 1}\n' });
+		const v = await mdwiki.renderPage('T');
+		expect(v!.html).toContain('<p>2</p>');
+		expect(v!.html).not.toContain('class="chip');
+	});
+
+	it('shows an unknown method call as a red error chip, not a quiet one', async () => {
+		const { mdwiki } = await setup({ 'T.md': '\n${team.openTasks()}\n' });
+		const v = await mdwiki.renderPage('T');
+		expect(v!.html).toContain('class="chip error"');
+		expect(v!.html).toContain('team.openTasks()');
 	});
 });
 

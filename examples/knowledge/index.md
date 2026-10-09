@@ -19,11 +19,11 @@ The app is **read only**: pages are written by agents through MCP (or the REST A
 2. [[Features/Markdown]]: tables, tasks, code highlighting, images, quotes.
 3. [[Features/Tags]]: inline and frontmatter tags, automatic tag pages.
 4. [[Features/Diagrams/Overview|Diagrams]]: Mermaid, Vega-Lite, math and eight Kroki diagram types.
-5. [[Features/SilverBullet-Syntax]]: Lua, queries and expressions render as inert chips.
+5. [[Features/SilverBullet-Syntax]]: Lua, queries and unreadable expressions render as inert chips.
 6. [[Features/Navigation]]: switcher, search, breadcrumbs, outline, backlinks.
 7. [[Features/Attachments]]: images and PDFs.
 8. [[Features/MCP-and-API]]: how agents write to the wiki.
-9. [[Features/Expressions]]: the built-in widgets that replace the SilverBullet `kb.*` helpers.
+9. [[Features/Expressions]]: the expression language for `${...}` and the built-in `kb.*` widgets.
 10. [[Features/Pages|Pages block]]: declarative lists, tables and counts from the index.
 11. [[Features/Search]]: ranked cards, facets and query filters.
 12. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.

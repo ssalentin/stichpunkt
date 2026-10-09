@@ -101,6 +101,15 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		({ self, ...query }) => run(() => mdwiki.queryPages(query, self ?? ''))
 	);
 	server.registerTool(
+		'evaluate',
+		{
+			description:
+				'Evaluate one ${...} expression against the index and return the JSON value plus its rendered text form. `page` sets `this`. Read only.',
+			inputSchema: { expr: z.string(), page: z.string().optional() }
+		},
+		({ expr, page }) => run(() => mdwiki.evaluateExpression(expr, page ?? ''))
+	);
+	server.registerTool(
 		'upload_attachment',
 		{
 			description:

@@ -1,19 +1,40 @@
 ---
 tags: [feature, compat]
-date: 2026-10-08
+date: 2026-10-09
 ---
 # Expressions
 
-stichpunkt does not evaluate expressions. It recognises exactly four SilverBullet helper calls and renders them as built-in, server-side widgets from the index. Every other `${...}` is shown as a quiet inline placeholder and is never run.
+`${ ausdruck }` is evaluated by stichpunkt with a small, own expression language. It runs on the server, can only read the index and always terminates: no loops, no user functions, no assignment. It is a Pratt parser and a tree-walking evaluator written in TypeScript; there is no `eval`, no Lua and no JavaScript runtime.
 
-| Expression | Renders |
+Three outcomes are possible:
+
+| Outcome | How it looks |
 | --- | --- |
-| `kb.section("<tag>")` | category header: badge, label, note count, last date, link to the start page |
-| `kb.recent("<tag>", n)` (also in the `kb.safe(...)` wrapper) | newest notes first by frontmatter `date` |
-| `kb.header` | "N notes in M categories" |
-| `kb.categories` | one card per category |
+| A value | the value itself: a number, `true`/`false`, a muted dash for `null`, a comma-separated list, a wikilink for a page, or a page list through the `pages` renderer |
+| Not run | a quiet chip "expression · not run", for a Lua remnant or a body that is not valid syntax |
+| Runtime error | a red error chip with the message and the source text, never blank |
 
-Categories come from the `tag.define` entries in `CONFIG`. Live examples:
+A few live examples:
+
+${1 + 1}
+
+${this.fm.status ?? "offen"}
+
+${count({tag: "feature"})}
+
+${link("Features/Expressions/Reference", "The full reference")}
+
+`${...}` is only ever escaped output: an expression never produces HTML, and a frontmatter string that looks like an expression is left as data.
+
+More:
+
+- [[Features/Expressions/Reference]]: every builtin and every operator with a live example.
+- [[Features/Expressions/Examples]]: realistic cases from a knowledge base.
+- [[Features/Expressions/Errors]]: what the red and the quiet chips look like.
+
+## The `kb.*` helpers still work
+
+The four SilverBullet helper calls remain recognised before the expression grammar and render exactly as before, from the index. Every other `${...}` in the old Lua style stays a quiet chip. Live examples:
 
 ${kb.section("feature")}
 
@@ -25,4 +46,4 @@ An unknown category shows a warning:
 
 ${kb.section("does-not-exist")}
 
-Anything else stays a placeholder and is not run: ${kb.section(someVariable)} and ${1 + 1}.
+A Lua remnant that is not one of the four presets stays inert: ${kb.section(someVariable)} and ${for i = 1, 10 do print(i) end}.
