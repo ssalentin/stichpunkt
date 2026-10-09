@@ -32,7 +32,7 @@ mkdir space                      # or copy your markdown directory here
 docker compose up -d --build
 ```
 
-The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` for generated URLs.
+The sample `compose.yml` does not publish a port; put your reverse proxy in front (route the UI through your SSO, and `/mcp` + `/api` on a separate router **without** SSO — they are protected by the bearer token). Match the token router with ``Path(`/mcp`) || PathPrefix(`/mcp/`) || Path(`/api`) || PathPrefix(`/api/`)``, not a bare `PathPrefix(`/api`)`, which is a plain string match and also catches `/apix` and `/mcp-foo`. The app serves HTTP; TLS is terminated by the proxy, so `PROTOCOL_HEADER=x-forwarded-proto` and `HOST_HEADER=x-forwarded-host` must be set (see `.env.example`), otherwise SvelteKit assumes `https` for generated URLs.
 
 Without Docker: `npm ci && npm run build && SPACE_DIR=./space MDWIKI_API_TOKEN=… node build/index.js`.
 
@@ -45,7 +45,7 @@ The web UI has no login; the proxy router for the UI must authenticate (e.g. Aut
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
-| `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **empty = both always answer 401** |
+| `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **at least 32 characters; empty, shorter or `change-me` = both always answer 401** (a startup error is logged). `openssl rand -base64 32` gives 44 |
 | `KROKI_URL` | empty | internal Kroki base URL; empty disables server-side diagrams (they show an error block) |
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |

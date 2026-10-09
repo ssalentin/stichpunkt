@@ -101,7 +101,7 @@ export class Store {
 		}
 	}
 
-	/** Lists markdown files, skipping dot entries and anything that resolves outside the root. */
+	/** Lists markdown files, skipping dot entries, directory symlinks and anything that resolves outside the root. */
 	async scan(): Promise<FileInfo[]> {
 		const realRoot = await fs.realpath(this.root);
 		const out: FileInfo[] = [];
@@ -118,6 +118,8 @@ export class Store {
 				const abs = path.join(dir, ent.name);
 				try {
 					if (ent.isSymbolicLink()) {
+						// directory symlinks can loop or alias a folder under two names: never follow them
+						if ((await fs.stat(abs)).isDirectory()) continue;
 						const real = await fs.realpath(abs);
 						if (real !== realRoot && !real.startsWith(realRoot + path.sep)) continue;
 					}

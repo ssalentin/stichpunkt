@@ -16,7 +16,8 @@ services:
     # separate router WITHOUT Authelia (they are protected by the bearer token).
     # labels: [...]
     #   - UI router (Authelia forwardAuth): must NOT set X-Mdwiki-Zone.
-    #   - Token router (PathPrefix /mcp, /api): add a `headers` middleware with
+    #   - Token router (rule: Path(`/mcp`) || PathPrefix(`/mcp/`) || Path(`/api`) || PathPrefix(`/api/`);
+    #     a bare PathPrefix(`/api`) would also match /apix): add a `headers` middleware with
     #       customRequestHeaders.X-Mdwiki-Zone=machine
     #     (it overwrites anything the client sent). The app then demands the bearer
     #     token for every path on that router, not only /api and /mcp.
