@@ -392,3 +392,62 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 .page-brand-name { font-family: var(--mono); font-weight: 700; font-size: 1.35rem; letter-spacing: -0.02em; }
 .page-brand-name .dot { color: var(--accent); }
 .page-brand-tag { color: var(--accent); font-family: var(--mono); font-size: 0.8rem; margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- custom scrollbars (brand, subtle) ---- */
+/* Firefox */
+.left,
+.right,
+.sheet,
+.switcher,
+.md pre,
+.table-wrap {
+	scrollbar-width: thin;
+	scrollbar-color: color-mix(in srgb, var(--muted) 45%, transparent) transparent;
+}
+/* WebKit / Blink */
+.left::-webkit-scrollbar,
+.right::-webkit-scrollbar,
+.sheet::-webkit-scrollbar,
+.switcher::-webkit-scrollbar,
+.md pre::-webkit-scrollbar,
+.table-wrap::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+.left::-webkit-scrollbar-track,
+.right::-webkit-scrollbar-track,
+.sheet::-webkit-scrollbar-track,
+.switcher::-webkit-scrollbar-track,
+.md pre::-webkit-scrollbar-track,
+.table-wrap::-webkit-scrollbar-track {
+	background: transparent;
+}
+.left::-webkit-scrollbar-thumb,
+.right::-webkit-scrollbar-thumb,
+.sheet::-webkit-scrollbar-thumb,
+.switcher::-webkit-scrollbar-thumb,
+.md pre::-webkit-scrollbar-thumb,
+.table-wrap::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--muted) 45%, transparent);
+	border-radius: 999px;
+	border: 2px solid transparent;
+	background-clip: content-box;
+}
+/* stronger while the pointer is over the scroll area */
+.left:hover::-webkit-scrollbar-thumb,
+.right:hover::-webkit-scrollbar-thumb,
+.sheet:hover::-webkit-scrollbar-thumb,
+.switcher:hover::-webkit-scrollbar-thumb,
+.md pre:hover::-webkit-scrollbar-thumb,
+.table-wrap:hover::-webkit-scrollbar-thumb {
+	background: color-mix(in srgb, var(--accent) 70%, var(--muted));
+	background-clip: content-box;
+}
+.left:hover,
+.right:hover,
+.sheet:hover,
+.switcher:hover,
+.md pre:hover,
+.table-wrap:hover {
+	scrollbar-color: color-mix(in srgb, var(--accent) 70%, var(--muted)) transparent;
+}
