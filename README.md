@@ -36,6 +36,7 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database â
 - [Operations](#operations)
 - [Architecture](#architecture)
 - [Development](#development)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## What is stichpunkt?
@@ -266,6 +267,10 @@ Test fixtures live in `test/fixtures/space` (synthetic, no real content).
 
 - Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
 - Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). All GitHub text (PRs, issues, comments, commits, branch names, code comments) is in English.
 
 ## License
 
