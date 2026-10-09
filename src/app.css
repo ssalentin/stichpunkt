@@ -190,7 +190,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .md table { border-collapse: collapse; font-size: 0.92rem; }
 .md th, .md td { border: 1px solid var(--border); padding: 0.35rem 0.6rem; text-align: left; vertical-align: top; }
 .md th { background: var(--panel); }
-.wikilink.missing { color: var(--danger); text-decoration: underline dotted; }
+.wikilink.missing { color: var(--danger); text-decoration: underline dotted; font-weight: 600; }
 .md ul:has(> .task-item) { list-style: none; padding-left: 0.4rem; }
 .task-item { list-style: none; }
 .task-item[data-checked='true'] { color: var(--muted); }
@@ -276,6 +276,7 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 /* hide the raw TeX until KaTeX has replaced it; an error box shows it again */
 .math:not(.diagram-ready):not(.diagram-failed) { min-height: 1.5rem; color: transparent; }
 .diagram-error { text-align: left; border: 1px solid var(--danger); border-left-width: 4px; border-radius: 6px; padding: 0.6rem 0.8rem; margin: 1rem 0; background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.diagram-error strong::before { content: "⚠ "; }
 .diagram-error strong { color: var(--danger); font-family: var(--mono); font-size: 0.85rem; overflow-wrap: anywhere; }
 .diagram-error pre { margin: 0.5rem 0 0; }
 
@@ -328,7 +329,8 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 .wg-label { font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
 .wg-meta { color: var(--muted); }
 .wg-home { margin-left: auto; }
-.wg-warn { color: var(--code); background: color-mix(in srgb, var(--code) 14%, transparent); border-radius: 999px; padding: 0.1rem 0.6rem; }
+.wg-warn { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); border: 1px solid var(--danger); border-radius: 999px; padding: 0.1rem 0.6rem; font-weight: 600; }
+.wg-warn::before { content: "⚠ "; }
 .wg-list ul { list-style: none; margin: 0; padding: 0; }
 .wg-list li { display: flex; justify-content: space-between; gap: 1rem; padding: 0.25rem 0; border-bottom: 1px solid var(--border); }
 .wg-list li:last-child { border-bottom: 0; }
@@ -344,8 +346,9 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: in
 .wg-query.wg-count { color: var(--muted); }
 .wg-query.wg-count strong { color: var(--fg); font-size: 1.15rem; }
 .wg-query .muted { margin: 0.2rem 0; }
-.wg-query-error { padding: 0.7rem 0.9rem; border: 1px solid color-mix(in srgb, var(--code) 40%, var(--border)); border-radius: 8px; background: color-mix(in srgb, var(--code) 8%, transparent); }
-.wg-query-error strong { color: var(--code); }
+.wg-query-error { padding: 0.7rem 0.9rem; border: 1px solid var(--danger); border-left-width: 4px; border-radius: 8px; background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.wg-query-error strong { color: var(--danger); }
+.wg-query-error strong::before { content: "⚠ "; }
 .wg-query-error pre { margin: 0.5rem 0 0; overflow-x: auto; }
 
 /* ---- home / index landing ---- */
