@@ -1,13 +1,14 @@
 <script lang="ts">
 	import '../app.css';
-	import { BRAND, BRAND_TAGLINE } from '#lib/brand';
+	import { BRAND, BRAND_REPO, BRAND_TAGLINE } from '#lib/brand';
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
+	import Icon from '#lib/components/Icon.svelte';
+	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
 	import Panel from '#lib/components/Panel.svelte';
 	import Switcher from '#lib/components/Switcher.svelte';
 	import Tree from '#lib/components/Tree.svelte';
 	import { APP_VERSION, APP_COMMIT, shortCommit } from '#lib/version';
-	import { THEMES, setTheme, storedTheme, type Theme } from '#lib/client/theme';
 	import { ui, visit } from '#lib/ui.svelte';
 	import { onMount } from 'svelte';
 
@@ -16,7 +17,7 @@
 	const current = $derived(page.data.name ?? '');
 	const view = $derived(page.data.kind === 'page' ? page.data.view : null);
 	let treeOpen = $state(true);
-	let theme = $state<Theme>('system');
+	let panelOpen = $state(true);
 
 	// breadcrumbs: every folder links to its namespace listing
 	const crumbs = $derived.by(() => {
@@ -29,8 +30,12 @@
 	});
 
 	onMount(() => {
-		theme = storedTheme();
-		treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
+		try {
+			treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
+			panelOpen = localStorage.getItem('stichpunkt.panel') !== '0';
+		} catch {
+			/* private mode: both columns stay open */
+		}
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 	});
 	afterNavigate(() => {
@@ -38,14 +43,20 @@
 		if (page.data.kind === 'page' && page.data.name) visit(page.data.name);
 	});
 
+	function remember(key: string, open: boolean) {
+		try {
+			localStorage.setItem(key, open ? '1' : '0');
+		} catch {
+			/* private mode */
+		}
+	}
 	function toggleTree() {
 		treeOpen = !treeOpen;
-		localStorage.setItem('stichpunkt.tree', treeOpen ? '1' : '0');
+		remember('stichpunkt.tree', treeOpen);
 	}
-
-	function onTheme(e: Event) {
-		theme = (e.currentTarget as HTMLSelectElement).value as Theme;
-		setTheme(theme);
+	function togglePanel() {
+		panelOpen = !panelOpen;
+		remember('stichpunkt.panel', panelOpen);
 	}
 
 	function typing(t: EventTarget | null) {
@@ -68,9 +79,9 @@
 
 <svelte:window onkeydown={onkey} />
 
-<div class="app" class:tree-closed={!treeOpen}>
+<div class="app" class:tree-closed={!treeOpen} class:panel-closed={!panelOpen}>
 	<header class="top">
-		<button class="icon" onclick={toggleTree} aria-label="Toggle sidebar" title="Toggle sidebar">☰</button>
+		<button class="icon col-toggle" onclick={toggleTree} aria-label="Toggle navigation column" aria-pressed={treeOpen} title="Toggle navigation column"><Icon name="sidebar-left" size={18} /></button>
 		<a class="brand" href="/" title={BRAND_TAGLINE}>{BRAND}<span class="brand-dot">.</span></a>
 		<nav class="crumbs" aria-label="Breadcrumbs">
 			{#each crumbs as c, i}
@@ -78,10 +89,10 @@
 				{#if c.href}<a href={c.href}>{c.name}</a>{:else}<span class="here">{c.name}</span>{/if}
 			{/each}
 		</nav>
-		<select class="theme-select" value={theme} onchange={onTheme} aria-label="Theme" title="Theme">
-			{#each THEMES as t}<option value={t.value}>{t.label}</option>{/each}
-		</select>
-		<button class="btn small" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)">Search <kbd>⌘K</kbd></button>
+		<button class="btn small search-btn" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)"><Icon name="search" size={14} /><span class="lbl">Search</span> <kbd>⌘K</kbd></button>
+		<ThemeSwitch />
+		<a class="icon gh" href={BRAND_REPO} target="_blank" rel="noopener noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub"><Icon name="github" size={18} /></a>
+		<button class="icon col-toggle right-toggle" onclick={togglePanel} aria-label="Toggle details column" aria-pressed={panelOpen} title="Toggle details column"><Icon name="sidebar-right" size={18} /></button>
 	</header>
 
 	<aside class="left">
@@ -97,7 +108,7 @@
 	</aside>
 
 	<main class="main">{#key page.url.pathname}<div class="main-inner">{@render children()}</div>{/key}
-		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()}</footer>
+		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()} · <a href={BRAND_REPO} target="_blank" rel="noopener noreferrer">GitHub</a></footer>
 	</main>
 
 	<aside class="right">

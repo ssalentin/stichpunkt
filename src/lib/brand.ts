@@ -5,6 +5,7 @@
  */
 export const BRAND = 'stichpunkt';
 export const BRAND_TAGLINE = 'Notes that stay in order.';
+export const BRAND_REPO = 'https://github.com/ssalentin/stichpunkt';
 export const BRAND_DESCRIPTION = 'A fast, minimal markdown wiki over plain files.';
 
 /** Brand palette (dark is the default theme; see IS-172). */

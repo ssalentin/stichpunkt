@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { BRAND } from '#lib/brand';
+	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
@@ -47,7 +48,7 @@
 
 <div class="searchwrap">
 	<form class="searchbar" onsubmit={(e) => (e.preventDefault(), submit())}>
-		<span class="mag" aria-hidden="true">⌕</span>
+		<span class="mag"><Icon name="search" size={18} /></span>
 		<input
 			class="searchbox"
 			type="search"
