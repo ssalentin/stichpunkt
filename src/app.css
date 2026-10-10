@@ -133,7 +133,6 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	.app {
 		grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
 		grid-template-areas: 'top top' 'left main';
-		grid-template-rows: auto 1fr;
 		padding-bottom: 0;
 	}
 	.top .icon { display: inline-block; }
@@ -154,7 +153,6 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	.app {
 		grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr) minmax(12rem, 17rem);
 		grid-template-areas: 'top top top' 'left main right';
-		grid-template-rows: auto 1fr;
 	}
 	.app.tree-closed { grid-template-columns: 0 minmax(0, 1fr) minmax(12rem, 17rem); }
 	.right {
@@ -173,6 +171,10 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .recent li, .right li, .sheet li { padding: 0.12rem 0; overflow-wrap: anywhere; }
 .tree li { overflow-wrap: anywhere; }
 .tree summary { cursor: pointer; display: flex; align-items: center; min-height: 1.5rem; }
+.tree summary { list-style: none; }
+.tree summary::-webkit-details-marker { display: none; }
+.tree summary::before { content: '▸'; flex: none; width: 1em; color: var(--muted); transition: transform 120ms ease-out; }
+.tree details[open] > summary::before { transform: rotate(90deg); }
 .tree li > a, .tree summary a { display: flex; align-items: center; min-height: 1.5rem; }
 .tree a.active { color: var(--accent); font-weight: 700; }
 .outline a { color: var(--fg); }
