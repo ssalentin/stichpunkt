@@ -12,6 +12,7 @@ const PAGES = 'pages-v1';
 const MAX_PAGES = 50;
 const MAX_ASSETS = 100;
 const ASSETS = 'assets-v1';
+const OFFLINE = '/offline.html';
 
 // Never cache the machine interfaces or mutating UI calls.
 const skip = (url: URL) => /^\/(api|mcp)(\/|$)/.test(url.pathname) || url.pathname.startsWith('/_ui/') && !url.pathname.startsWith('/_ui/diagram/');
@@ -20,7 +21,7 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches
 			.open(SHELL)
-			.then((c) => c.addAll([...build, ...files]))
+			.then((c) => c.addAll([...new Set([...build, ...files, OFFLINE])]))
 			.then(() => self.skipWaiting())
 	);
 });
@@ -62,7 +63,10 @@ self.addEventListener('fetch', (event) => {
 					if (res.ok) event.waitUntil(put(PAGES, MAX_PAGES * 2, req, res.clone()));
 					return res;
 				})
-				.catch(async () => (await caches.match(req)) ?? (await caches.match('/')) ?? Response.error())
+				.catch(async () => {
+					const hit = (await caches.match(req)) ?? (req.mode === 'navigate' ? await caches.match(OFFLINE) : undefined);
+					return hit ?? Response.error();
+				})
 		);
 		return;
 	}

@@ -64,7 +64,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - Callouts (`> [!note]`, `[!tip]`, `[!warning]`, … with `+`/`-` for foldable ones), footnotes (`[^1]`), emoji shortcodes (`:tada:`) and transclusion (`![[Page]]`, `![[Page#Heading]]`, nested up to 3 levels with a loop guard); see the `Features/` demo pages.
 - Full-text search with ranked result cards, anchors, highlighted snippets and folder/tag facets (`#tag`, `in:folder`, `"phrases"`).
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
-- Installable PWA; the service worker caches the shell and the last ~50 visited pages for offline reading.
+- Installable PWA (Chrome on Android: "Install" button in the header or menu → *Install app*); the service worker caches the shell and the last ~50 visited pages for offline reading and shows an offline page for anything not yet visited. Installing requires HTTPS (or `localhost`).
 
 **Themes**
 

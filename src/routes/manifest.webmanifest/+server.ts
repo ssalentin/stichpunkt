@@ -8,9 +8,18 @@ export const GET: RequestHandler = () =>
 			name: BRAND,
 			short_name: BRAND,
 			description: BRAND_DESCRIPTION,
-			start_url: '/',
+			id: '/',
+			start_url: '/?source=pwa',
 			scope: '/',
+			lang: 'en',
+			dir: 'ltr',
 			display: 'standalone',
+			display_override: ['standalone', 'minimal-ui'],
+			orientation: 'any',
+			categories: ['productivity', 'utilities'],
+			shortcuts: [
+				{ name: 'Home', url: '/?source=shortcut', icons: [{ src: '/icon-192.png', sizes: '192x192', type: 'image/png' }] }
+			],
 			background_color: BRAND_COLORS.dark.bg,
 			theme_color: BRAND_COLORS.dark.bg,
 			icons: [

@@ -29,4 +29,11 @@ describe('brand (stichpunkt)', () => {
 		}
 		expect(manifest).toContain('BRAND_COLORS.dark.bg');
 	});
+
+	it('is installable: manifest has id/start_url/scope/standalone and the offline page ships', () => {
+		const manifest = fs.readFileSync(path.join(root, 'src/routes/manifest.webmanifest/+server.ts'), 'utf8');
+		for (const key of ["id: '/'", 'start_url:', "scope: '/'", "display: 'standalone'", 'shortcuts:']) expect(manifest).toContain(key);
+		expect(fs.existsSync(path.join(root, 'static/offline.html'))).toBe(true);
+		expect(fs.readFileSync(path.join(root, 'src/service-worker.ts'), 'utf8')).toContain('/offline.html');
+	});
 });
