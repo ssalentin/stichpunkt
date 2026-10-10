@@ -61,6 +61,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - Folders are namespaces (`Server/SilverBullet.md` → page `Server/SilverBullet`); `Library/` is hidden from navigation.
 - CommonMark + GFM, frontmatter, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]` wikilinks, `#tags` (inline and frontmatter) and syntax-highlighted code.
 - Mobile-first shell (bottom bar and sheet), three columns on desktop, quick switcher (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), breadcrumbs, outline, backlinks and a properties rail.
+- Callouts (`> [!note]`, `[!tip]`, `[!warning]`, … with `+`/`-` for foldable ones), footnotes (`[^1]`), emoji shortcodes (`:tada:`) and transclusion (`![[Page]]`, `![[Page#Heading]]`, nested up to 3 levels with a loop guard); see the `Features/` demo pages.
 - Full-text search with ranked result cards, anchors, highlighted snippets and folder/tag facets (`#tag`, `in:folder`, `"phrases"`).
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
 - Installable PWA; the service worker caches the shell and the last ~50 visited pages for offline reading.

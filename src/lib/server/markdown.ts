@@ -19,6 +19,8 @@ import xml from 'highlight.js/lib/languages/xml';
 import yamlLang from 'highlight.js/lib/languages/yaml';
 import * as yaml from 'js-yaml';
 import MarkdownIt, { type Token } from 'markdown-it';
+import footnote from 'markdown-it-footnote';
+import { EMOJI } from '../emoji';
 import { diagramForLang, INERT_FENCES } from '../diagrams';
 import { ExprRuntimeError, parseExpr } from './expr';
 
@@ -110,6 +112,10 @@ export interface RenderEnv {
 	pagesBlocks?: PagesBlock[];
 	/** expressions in document order, referenced by their placeholder index */
 	exprs?: ExprSource[];
+	/** `![[Page]]` transclusions in document order, referenced by their placeholder index */
+	embeds?: EmbedRef[];
+	/** suffix that keeps footnote ids unique when this body is embedded into another page */
+	docId?: string;
 	usedClient?: Set<string>;
 	slugs?: Map<string, number>;
 }
@@ -126,6 +132,12 @@ export interface ExprSource {
 	usesToday: boolean;
 }
 
+
+/** A `![[Page]]` or `![[Page#Heading]]` transclusion collected during rendering (resolved by the service). */
+export interface EmbedRef {
+	target: string;
+	heading?: string;
+}
 
 export type Widget =
 	| { kind: 'section'; tag: string }
@@ -204,6 +216,98 @@ function splitFirst(s: string, ch: string): [string, string | undefined] {
 	const i = s.indexOf(ch);
 	return i < 0 ? [s, undefined] : [s.slice(0, i), s.slice(i + 1)];
 }
+
+/** `![[Page]]` / `![[Page#Heading]]`: pulls another page (or one section) into this one. */
+function embedRule(state: any, silent: boolean): boolean {
+	const src: string = state.src;
+	const start = state.pos;
+	if (src.charCodeAt(start) !== 0x21 || src.charCodeAt(start + 1) !== 0x5b || src.charCodeAt(start + 2) !== 0x5b) return false;
+	const end = src.indexOf(']]', start + 3);
+	if (end < 0) return false;
+	const inner = src.slice(start + 3, end);
+	if (inner.includes('\n') || inner.includes('[') || inner.trim() === '') return false;
+	let [targetPart] = splitFirst(inner, '|');
+	let heading: string | undefined;
+	const hashAt = targetPart.indexOf('#');
+	if (hashAt >= 0) {
+		heading = targetPart.slice(hashAt + 1).trim() || undefined;
+		targetPart = targetPart.slice(0, hashAt);
+	}
+	const target = targetPart.trim().replace(/\.md$/i, '');
+	if (!target) return false;
+	if (!silent) {
+		const tok = state.push('embed', '', 0);
+		tok.meta = { target, heading } satisfies EmbedRef;
+	}
+	state.pos = end + 2;
+	return true;
+}
+
+/** `:shortcode:` → emoji; unknown codes are left as written. */
+function emojiRule(state: any, silent: boolean): boolean {
+	const src: string = state.src;
+	const start = state.pos;
+	if (src.charCodeAt(start) !== 0x3a) return false;
+	const end = src.indexOf(':', start + 1);
+	if (end < 0 || end - start > 40) return false;
+	const emoji = EMOJI.get(src.slice(start + 1, end));
+	if (!emoji) return false;
+	if (!silent) state.push('text', '', 0).content = emoji;
+	state.pos = end + 1;
+	return true;
+}
+
+const CALLOUT_RE = /^\[!([A-Za-z][\w-]*)\]([+-])?(?:[ \t]+|$)/;
+const CALLOUT_KINDS: Record<string, string> = {
+	note: 'note', info: 'note', todo: 'note',
+	abstract: 'abstract', summary: 'abstract', tldr: 'abstract',
+	tip: 'tip', hint: 'tip', important: 'tip',
+	success: 'success', check: 'success', done: 'success',
+	question: 'question', help: 'question', faq: 'question',
+	warning: 'warning', caution: 'warning', attention: 'warning',
+	failure: 'danger', fail: 'danger', missing: 'danger', danger: 'danger', error: 'danger', bug: 'danger',
+	example: 'example',
+	quote: 'quote', cite: 'quote'
+};
+
+/**
+ * Turns a blockquote that starts with `[!type]` (optionally `[!type]+` / `[!type]-` for a
+ * foldable one) into a callout. The rest of that first line is the title.
+ */
+function calloutRule(state: any): void {
+	const toks: Token[] = state.tokens;
+	for (let i = 0; i < toks.length; i++) {
+		if (toks[i].type !== 'blockquote_open') continue;
+		const inline = toks[i + 2];
+		if (toks[i + 1]?.type !== 'paragraph_open' || inline?.type !== 'inline' || !inline.children?.length) continue;
+		const kids = inline.children;
+		const m = kids[0].type === 'text' ? CALLOUT_CALL(kids[0].content) : null;
+		if (!m) continue;
+		let cut = 1;
+		while (cut < kids.length && kids[cut].type !== 'softbreak' && kids[cut].type !== 'hardbreak') cut++;
+		const head = [Object.assign(new state.Token('text', '', 0), { content: kids[0].content.slice(m[0].length) }), ...kids.slice(1, cut)];
+		const title = plainInline({ children: head } as Token).trim();
+		const rest = kids.slice(cut + 1);
+		if (rest.length) inline.children = rest;
+		else toks.splice(i + 1, 3);
+		let depth = 0;
+		let j = i;
+		for (; j < toks.length; j++) {
+			if (toks[j].type === 'blockquote_open') depth++;
+			else if (toks[j].type === 'blockquote_close' && --depth === 0) break;
+		}
+		const raw = m[1].toLowerCase();
+		const kind = CALLOUT_KINDS[raw] ?? 'note';
+		const meta = { kind, raw, fold: m[2], title: title || raw.charAt(0).toUpperCase() + raw.slice(1) };
+		toks[i].type = 'callout_open';
+		toks[i].meta = meta;
+		if (j < toks.length) {
+			toks[j].type = 'callout_close';
+			toks[j].meta = meta;
+		}
+	}
+}
+const CALLOUT_CALL = (s: string) => CALLOUT_RE.exec(s);
 
 const TAG_RE = /#([\p{L}_][\p{L}\p{N}_\-/]*)/uy;
 
@@ -372,6 +476,10 @@ export function createMarkdown() {
 	md.inline.ruler.before('text', 'tag', tagRule);
 	md.inline.ruler.before('text', 'expr_chip', exprRule);
 	md.inline.ruler.before('escape', 'math', mathInlineRule);
+	md.inline.ruler.before('image', 'embed', embedRule);
+	md.inline.ruler.before('text', 'emoji', emojiRule);
+	md.use(footnote);
+	md.core.ruler.push('callout', calloutRule);
 	md.block.ruler.before('fence', 'math_block', mathBlockRule, {
 		alt: ['paragraph', 'reference', 'blockquote', 'list']
 	});
@@ -428,6 +536,26 @@ export function createMarkdown() {
 		(env.tags ??= new Set()).add(name);
 		return `<a class="tag" href="/tag/${encodeURI(name)}">#${escapeHtml(name)}</a>`;
 	};
+
+	r.embed = (tokens, idx, _o, env: any) => {
+		const { target, heading } = tokens[idx].meta as unknown as EmbedRef;
+		// ![[picture.png]] is an image, anything else is a page
+		if (/\.(png|jpe?g|gif|svg|webp|avif)$/i.test(target)) {
+			return `<img src="${escapeHtml(resolveUrl(target, env.dir ?? ''))}" alt="${escapeHtml(target)}" loading="lazy">`;
+		}
+		const list = (env.embeds ??= []);
+		list.push({ target, heading });
+		return `<!--embed:${list.length - 1}-->`;
+	};
+
+	r.callout_open = (tokens, idx) => {
+		const { kind, raw, fold, title } = tokens[idx].meta as { kind: string; raw: string; fold?: string; title: string };
+		const head = `<span class="callout-icon" aria-hidden="true"></span><span class="callout-name">${escapeHtml(title)}</span>`;
+		const cls = `callout callout-${kind}`;
+		if (fold) return `<details class="${cls}" data-callout="${escapeHtml(raw)}"${fold === '+' ? ' open' : ''}><summary class="callout-title">${head}</summary><div class="callout-body">\n`;
+		return `<div class="${cls}" data-callout="${escapeHtml(raw)}"><div class="callout-title">${head}</div><div class="callout-body">\n`;
+	};
+	r.callout_close = (tokens, idx) => (tokens[idx].meta as { fold?: string }).fold ? '</div></details>\n' : '</div></div>\n';
 
 	r.expr_chip = (tokens, idx, _o, env: any) => {
 		const content = tokens[idx].content as string;
@@ -642,6 +770,7 @@ export function analyze(raw: string): Analysis {
 			add(inlineText(t));
 			for (const c of t.children ?? []) {
 				if (c.type === 'wikilink') links.push(c.meta as unknown as WikiLink);
+				else if (c.type === 'embed') links.push(c.meta as unknown as WikiLink);
 				else if (c.type === 'tag') tags.add(c.content);
 			}
 		} else if (t.type === 'fence' && !INERT_FENCES.has(t.info.trim().split(/\s+/)[0].toLowerCase())) {
@@ -665,6 +794,7 @@ export interface Rendered {
 	widgets: Widget[];
 	pagesBlocks: PagesBlock[];
 	exprs: ExprSource[];
+	embeds: EmbedRef[];
 	usedClient: string[];
 	headings: { level: number; text: string; slug: string }[];
 }
@@ -677,9 +807,27 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 		widgets: env.widgets ?? [],
 		pagesBlocks: env.pagesBlocks ?? [],
 		exprs: env.exprs ?? [],
+		embeds: env.embeds ?? [],
 		usedClient: [...(env.usedClient ?? [])],
 		headings: env.headings ?? []
 	};
+}
+
+/**
+ * The source lines under the heading `heading` (the heading line itself excluded), up to the next
+ * heading of the same or a higher level. Null when the page has no such heading.
+ */
+export function sectionOf(body: string, heading: string): string | null {
+	const toks = md.parse(body, {} as never);
+	const want = slugify(heading);
+	for (let i = 0; i < toks.length; i++) {
+		const t = toks[i];
+		if (t.type !== 'heading_open' || !t.map || slugify(plainInline(toks[i + 1])) !== want) continue;
+		const level = Number(t.tag.slice(1));
+		const next = toks.slice(i + 1).find((x) => x.type === 'heading_open' && x.map && Number(x.tag.slice(1)) <= level);
+		return body.split('\n').slice(t.map[1], next?.map?.[0]).join('\n');
+	}
+	return null;
 }
 
 export { escapeHtml };

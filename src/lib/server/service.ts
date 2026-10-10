@@ -1,7 +1,7 @@
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
-import { escapeHtml, parseFrontmatter, renderBody, type ExprSource, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
+import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
 import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
 import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
@@ -43,6 +43,19 @@ interface CacheEntry {
 	/** day key when the page uses `today()`, else '' */
 	day: string;
 	rendered: Rendered;
+}
+
+const MAX_EMBED_DEPTH = 3;
+const MAX_EMBEDS_PER_PAGE = 20;
+const MAX_EMBED_CHARS = 200_000;
+
+interface EmbedCtx {
+	depth: number;
+	/** pages currently being embedded, outermost first (loop guard) */
+	stack: string[];
+	docId: string;
+	/** shared by every level of one host page */
+	shared: { count: number; usedClient: Set<string>; failed: boolean };
 }
 
 export class Mdwiki {
@@ -210,7 +223,7 @@ export class Mdwiki {
 		if (!rec) return null;
 		let entry = this.htmlCache.get(name);
 		const day = todayKey();
-		const dynamic = (e: CacheEntry) => e.rendered.widgets.length > 0 || e.rendered.pagesBlocks.length > 0 || e.rendered.exprs.length > 0;
+		const dynamic = (e: CacheEntry) => e.rendered.widgets.length > 0 || e.rendered.pagesBlocks.length > 0 || e.rendered.exprs.length > 0 || e.rendered.embeds.length > 0;
 		if (
 			!entry ||
 			entry.hash !== rec.hash ||
@@ -234,9 +247,12 @@ export class Mdwiki {
 			const budget = new QueryBudget();
 			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name, budget);
 			const withExprs = this.fillExpressions(withPages, rendered.exprs, name, budget);
-			const { html, failed } = await this.fillDiagrams(withExprs, rendered.jobs);
-			const done = { ...rendered, html };
-			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.exprs.length > 0;
+			const diagrams = await this.fillDiagrams(withExprs, rendered.jobs);
+			const embedded = await this.fillEmbeds(diagrams.html, rendered.embeds, name, { depth: 0, stack: [name], docId: '', shared: { count: 0, usedClient: new Set(), failed: false } });
+			const html = embedded.html;
+			const failed = diagrams.failed || embedded.failed;
+			const done = { ...rendered, html, usedClient: [...new Set([...rendered.usedClient, ...embedded.usedClient])] };
+			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.exprs.length > 0 || rendered.embeds.length > 0;
 			entry = {
 				hash: hashOf(file.data),
 				setVersion: this.index.setVersion,
@@ -270,6 +286,65 @@ export class Mdwiki {
 			usedClient: entry.rendered.usedClient,
 			backlinks: this.index.backlinks(name),
 			tagLists
+		};
+	}
+
+	/**
+	 * Replaces every `<!--embed:n-->` placeholder with the embedded page (or section). An embed
+	 * alone in its paragraph becomes a block; inside running text it degrades to a plain link.
+	 * Embedded pages are rendered with the full pipeline, but their headings lose their ids (the
+	 * outline and anchors belong to the host page) and their footnote ids get a unique suffix.
+	 */
+	private async fillEmbeds(html: string, embeds: EmbedRef[], self: string, ctx: EmbedCtx): Promise<{ html: string; failed: boolean; usedClient: Set<string> }> {
+		if (!embeds.length) return { html, failed: ctx.shared.failed, usedClient: ctx.shared.usedClient };
+		const out = await Promise.all(embeds.map((e, i) => this.renderEmbed(e, i, self, ctx)));
+		const inline = (id: string) => {
+			const e = embeds[Number(id)];
+			const to = this.index.resolve(e.target, self);
+			const label = escapeHtml(to ? this.index.displayName(to) : e.target);
+			return to ? `<a class="wikilink" href="/${encodeURI(to)}">${label}</a>` : `<span class="wikilink missing">${label}</span>`;
+		};
+		const filled = html
+			.replace(/<p><!--embed:(\d+)--><\/p>/g, (_m, id) => out[Number(id)]?.block ?? '')
+			.replace(/<!--embed:(\d+)-->/g, (_m, id) => inline(id));
+		return { html: filled, failed: ctx.shared.failed, usedClient: ctx.shared.usedClient };
+	}
+
+	private async renderEmbed(e: EmbedRef, index: number, self: string, ctx: EmbedCtx): Promise<{ block: string }> {
+		const note = (cls: string, msg: string) => ({ block: `<div class="embed embed-${cls}" role="note">${escapeHtml(msg)}</div>\n` });
+		const to = this.index.resolve(e.target, self);
+		if (!to) return note('missing', `Embedded page “${e.target}” does not exist`);
+		if (ctx.stack.includes(to)) return note('loop', `Embedding “${to}” here would loop; skipped`);
+		if (ctx.depth >= MAX_EMBED_DEPTH) return note('limit', `Embeds are nested too deeply (limit ${MAX_EMBED_DEPTH}); “${to}” skipped`);
+		if (++ctx.shared.count > MAX_EMBEDS_PER_PAGE) return note('limit', `Too many embeds on this page (limit ${MAX_EMBEDS_PER_PAGE})`);
+		const file = await this.store.read(pageToFile(to));
+		if (!file) return note('missing', `Embedded page “${to}” does not exist`);
+		const fm = parseFrontmatter(file.data.toString('utf8'));
+		let body = fm.body;
+		if (e.heading) {
+			const part = sectionOf(body, e.heading);
+			if (part === null) return note('missing', `“${to}” has no heading “${e.heading}”`);
+			body = part;
+		}
+		if (body.length > MAX_EMBED_CHARS) body = body.slice(0, MAX_EMBED_CHARS);
+		const docId = `${ctx.docId}e${index}`;
+		const dir = to.includes('/') ? to.slice(0, to.lastIndexOf('/')) : '';
+		const rendered = renderBody(body, { dir, docId, resolve: (t) => this.index.resolve(t, to), label: (p) => this.index.displayName(p) });
+		const budget = new QueryBudget();
+		let inner = this.fillWidgets(rendered.html, rendered.widgets, to);
+		inner = this.fillPagesBlocks(inner, rendered.pagesBlocks, to, budget);
+		inner = this.fillExpressions(inner, rendered.exprs, to, budget);
+		const dia = await this.fillDiagrams(inner, rendered.jobs);
+		if (dia.failed) ctx.shared.failed = true;
+		const nested = await this.fillEmbeds(dia.html, rendered.embeds, to, { ...ctx, depth: ctx.depth + 1, stack: [...ctx.stack, to], docId });
+		for (const c of rendered.usedClient) ctx.shared.usedClient.add(c);
+		const content = nested.html.replace(/(<h[1-6]) id="[^"]*"/g, '$1');
+		const frag = e.heading ? '#' + slugify(e.heading) : '';
+		const label = (this.index.get(to)?.title ?? to) + (e.heading ? ` › ${e.heading}` : '');
+		return {
+			block:
+				`<aside class="embed" data-embed="${escapeHtml(to)}"><div class="embed-head"><a class="wikilink" href="/${encodeURI(to)}${frag}" title="${escapeHtml(to)}">${escapeHtml(label)}</a></div>` +
+				`<div class="embed-body">${content}</div></aside>\n`
 		};
 	}
 
