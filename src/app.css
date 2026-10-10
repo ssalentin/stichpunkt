@@ -100,7 +100,7 @@ kbd { font-size: 0.7em; color: var(--muted); border: 1px solid var(--border); bo
 .crumbs a { text-decoration: underline; }
 .crumbs .sep { color: var(--muted); margin: 0 0.25em; }
 .crumbs .here { color: var(--fg); }
-.top .col-toggle { display: none; }
+.top .icon.col-toggle { display: none; } /* only shown where its column exists (see media queries) */
 .top .btn:not(.primary) kbd { display: none; }
 .top .icon {
 	display: inline-flex; align-items: center; justify-content: center; flex: none;
@@ -150,7 +150,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 		grid-template-areas: 'top top' 'left main';
 		padding-bottom: 0;
 	}
-	.top .col-toggle:not(.right-toggle) { display: inline-flex; }
+	.top .icon.col-toggle:not(.right-toggle) { display: inline-flex; }
 	.top .btn:not(.primary) kbd { display: inline; }
 	.top .search-btn .lbl { display: inline; }
 	.app.tree-closed { --lw: 0px; }
@@ -171,7 +171,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 		grid-template-columns: var(--lw) minmax(0, 1fr) var(--rw);
 		grid-template-areas: 'top top top' 'left main right';
 	}
-	.top .right-toggle { display: inline-flex; }
+	.top .icon.right-toggle { display: inline-flex; }
 	.app.panel-closed { --rw: 0px; }
 	.app.panel-closed .right { display: none; }
 	.right:not(:has(*)) { border-left-color: transparent; }
