@@ -74,6 +74,7 @@ kbd { font-size: 0.7em; color: var(--muted); border: 1px solid var(--border); bo
 	display: grid;
 	grid-template-columns: minmax(0, 1fr);
 	grid-template-areas: 'top' 'main';
+	grid-template-rows: auto 1fr;
 	min-height: 100dvh;
 	padding-bottom: calc(var(--bar-h) + env(safe-area-inset-bottom));
 	padding-left: env(safe-area-inset-left);
@@ -96,6 +97,7 @@ kbd { font-size: 0.7em; color: var(--muted); border: 1px solid var(--border); bo
 .brand { color: var(--fg); font-weight: 700; letter-spacing: -0.02em; }
 .brand .brand-dot { color: var(--accent); }
 .crumbs { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.crumbs a { text-decoration: underline; }
 .crumbs .sep { color: var(--muted); margin: 0 0.25em; }
 .crumbs .here { color: var(--fg); }
 .top .icon { display: none; }
@@ -131,6 +133,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	.app {
 		grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
 		grid-template-areas: 'top top' 'left main';
+		grid-template-rows: auto 1fr;
 		padding-bottom: 0;
 	}
 	.top .icon { display: inline-block; }
@@ -151,6 +154,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	.app {
 		grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr) minmax(12rem, 17rem);
 		grid-template-areas: 'top top top' 'left main right';
+		grid-template-rows: auto 1fr;
 	}
 	.app.tree-closed { grid-template-columns: 0 minmax(0, 1fr) minmax(12rem, 17rem); }
 	.right {
@@ -163,16 +167,18 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 }
 
 /* ---- sidebar / panel ---- */
-.left h3, .right h3, .sheet h3 { margin: 1rem 0 0.35rem; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.left h2, .right h2, .sheet h2 { margin: 1rem 0 0.35rem; font-size: 0.7rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .left ul, .right ul, .sheet ul { list-style: none; margin: 0; padding: 0; }
 .tree ul { padding-left: 0.9rem; border-left: 1px solid var(--border); margin-left: 0.3rem; }
-.tree li, .recent li, .right li, .sheet li { padding: 0.12rem 0; overflow-wrap: anywhere; }
-.tree summary { cursor: pointer; }
+.recent li, .right li, .sheet li { padding: 0.12rem 0; overflow-wrap: anywhere; }
+.tree li { overflow-wrap: anywhere; }
+.tree summary { cursor: pointer; display: flex; align-items: center; min-height: 1.5rem; }
+.tree li > a, .tree summary a { display: flex; align-items: center; min-height: 1.5rem; }
 .tree a.active { color: var(--accent); font-weight: 700; }
 .outline a { color: var(--fg); }
 .taglist { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
-.actions h3 { flex-basis: 100%; }
+.actions h2 { flex-basis: 100%; }
 
 /* ---- controls ---- */
 .btn {
@@ -192,8 +198,9 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	width: 100%; font: 1rem var(--mono); color: var(--fg);
 	background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 0.7rem 0.8rem;
 }
-.tag { font-family: var(--mono); font-size: 0.85em; color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 0 0.35em; }
+.tag { font-family: var(--mono); font-size: 0.85em; color: color-mix(in srgb, var(--accent) 75%, var(--fg)); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; padding: 0 0.35em; }
 .tag:hover { text-decoration: none; filter: brightness(1.2); }
+.md .tag { text-decoration: underline; }
 
 /* ---- page content ---- */
 .page { max-width: 72ch; margin: 0 auto; }
@@ -249,7 +256,7 @@ input.task { width: 1.3rem; height: 1.3rem; vertical-align: -0.25em; accent-colo
 .list, .results { list-style: none; padding: 0; }
 .list li, .results li { padding: 0.35rem 0; }
 .results p { margin: 0.1rem 0 0.6rem; color: var(--muted); font-size: 0.9rem; }
-mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; }
+mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: var(--fg); border-radius: 2px; }
 
 /* ---- search ---- */
 .searchwrap { max-width: 76ch; margin: 0 auto; }

@@ -86,11 +86,11 @@
 
 	<aside class="left">
 		<Tree nodes={data.tree} {current} />
-		<h3>Recent</h3>
+		<h2>Recent</h2>
 		<ul class="recent">
 			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path}>{r.title}</a></li>{/each}
 		</ul>
-		<h3>Tags</h3>
+		<h2>Tags</h2>
 		<p class="taglist">
 			{#each data.tags as t (t.name)}<a class="tag" href="/tag/{encodeURI(t.name)}">#{t.name}</a>{/each}
 		</p>
