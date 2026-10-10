@@ -1,12 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { precacheUrls } from '../src/lib/precache';
+import { toPathname } from '../src/lib/precache';
 
-describe('precacheUrls', () => {
-	const base = 'https://example.test';
+describe('toPathname', () => {
+	const base = 'https://example.test/service-worker.js';
 
-	it('collapses relative and absolute spellings of the same file (Cache.addAll rejects duplicates)', () => {
-		const urls = precacheUrls(base, ['offline.html', 'a.js'], ['/offline.html'], ['/offline.html']);
-		expect(urls).toEqual(['https://example.test/offline.html', 'https://example.test/a.js']);
-		expect(new Set(urls).size).toBe(urls.length);
+	it('resolves relative and absolute spellings of offline.html to one pathname', () => {
+		expect(toPathname('offline.html', base)).toBe('/offline.html');
+		expect(toPathname('/offline.html', base)).toBe('/offline.html');
+	});
+
+	it('resolves immutable build paths to absolute pathnames', () => {
+		expect(toPathname('_app/immutable/x.js', base)).toBe('/_app/immutable/x.js');
+	});
+
+	it('collapses a mapped list with both spellings to one Set entry (Cache.addAll rejects duplicates)', () => {
+		const list = ['offline.html', '/offline.html'].map((p) => toPathname(p, base));
+		expect(new Set(list).size).toBe(1);
 	});
 });

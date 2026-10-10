@@ -1,4 +1,2 @@
-// Cache.addAll() rejects requests that resolve to the same URL, so dedupe on resolved URLs, not on raw strings.
-export function precacheUrls(base: string, ...lists: string[][]): string[] {
-	return [...new Set(lists.flat().map((p) => new URL(p, base).href))];
-}
+// Manifest paths are relative to the worker; resolve them once so addAll and the fetch handler use one form.
+export const toPathname = (path: string, base: string) => new URL(path, base).pathname;

@@ -1,12 +1,12 @@
 /// <reference lib="webworker" />
 import { version } from '$app/env';
 import { assets, immutable } from '$app/manifest';
-import { precacheUrls } from '$lib/precache';
+import { toPathname } from '#lib/precache';
 
 declare const self: ServiceWorkerGlobalScope;
 
-const build: string[] = immutable.map((f) => f.path);
-const files: string[] = assets.map((f) => f.path);
+const build: string[] = immutable.map((f) => toPathname(f.path, location.href));
+const files: string[] = assets.map((f) => toPathname(f.path, location.href));
 
 const SHELL = `shell-${version}`;
 const PAGES = 'pages-v1';
@@ -22,7 +22,7 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches
 			.open(SHELL)
-			.then((c) => c.addAll(precacheUrls(location.origin, build, files, [OFFLINE])))
+			.then((c) => c.addAll([...new Set([...build, ...files, OFFLINE])]))
 			.then(() => self.skipWaiting())
 	);
 });
