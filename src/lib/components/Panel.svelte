@@ -20,7 +20,7 @@
 </script>
 
 <section>
-	<h3>Outline</h3>
+	<h2>Outline</h2>
 	{#if view.headings.length}
 		<ul class="outline">
 			{#each view.headings as h}
@@ -30,7 +30,7 @@
 	{:else}<p class="muted">No headings</p>{/if}
 </section>
 <section>
-	<h3>Backlinks <span class="muted">{view.backlinks.length}</span></h3>
+	<h2>Backlinks <span class="muted">{view.backlinks.length}</span></h2>
 	{#if view.backlinks.length}
 		<ul>
 			{#each view.backlinks as b}
@@ -40,14 +40,14 @@
 	{:else}<p class="muted">Nothing links here</p>{/if}
 </section>
 <section>
-	<h3>Tags</h3>
+	<h2>Tags</h2>
 	<p class="taglist">
 		{#each view.tags as t}<a class="tag" href="/tag/{encodeURI(t)}" onclick={() => onnavigate?.()}>#{t}</a>{:else}<span class="muted">No tags</span>{/each}
 	</p>
 </section>
 {#if fmEntries.length}
 	<section class="props-panel">
-		<h3>Properties</h3>
+		<h2>Properties</h2>
 		<dl>
 			{#each fmEntries as [k, v]}
 				<dt>{k}</dt>
@@ -57,6 +57,6 @@
 	</section>
 {/if}
 <section class="actions">
-	<h3>Page</h3>
+	<h2>Page</h2>
 	<button class="btn" onclick={copyLink}>Copy [[link]]</button>
 </section>
