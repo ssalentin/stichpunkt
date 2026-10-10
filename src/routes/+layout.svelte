@@ -10,6 +10,7 @@
 	import Tree from '#lib/components/Tree.svelte';
 	import { APP_VERSION, APP_COMMIT, shortCommit } from '#lib/version';
 	import { ui, visit } from '#lib/ui.svelte';
+	import { install, listenForInstall, pwa } from '#lib/client/pwa.svelte';
 	import { onMount } from 'svelte';
 
 	let { data, children } = $props();
@@ -37,6 +38,7 @@
 			/* private mode: both columns stay open */
 		}
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
+		return listenForInstall();
 	});
 	afterNavigate(() => {
 		ui.sheet = false;
@@ -90,6 +92,7 @@
 			{/each}
 		</nav>
 		<button class="btn small search-btn" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)"><Icon name="search" size={14} /><span class="lbl">Search</span> <kbd>⌘K</kbd></button>
+		{#if pwa.canInstall}<button class="btn small install-btn" onclick={install} title="Install as app">Install</button>{/if}
 		<ThemeSwitch />
 		<a class="icon gh" href={BRAND_REPO} target="_blank" rel="noopener noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub"><Icon name="github" size={18} /></a>
 		<button class="icon col-toggle right-toggle" onclick={togglePanel} aria-label="Toggle details column" aria-pressed={panelOpen} title="Toggle details column"><Icon name="sidebar-right" size={18} /></button>

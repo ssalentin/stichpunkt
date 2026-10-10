@@ -576,3 +576,5 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 .footnotes-list li { padding: 0.15rem 0; }
 .footnotes-list li:target { background: color-mix(in srgb, var(--accent) 14%, transparent); border-radius: 4px; }
 .footnotes-list p { margin: 0.1rem 0; display: inline; }
+
+.install-btn { border-color: var(--accent); color: var(--accent); }
