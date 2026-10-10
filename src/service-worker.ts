@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { version } from '$app/env';
 import { assets, immutable } from '$app/manifest';
+import { precacheUrls } from '$lib/precache';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -21,7 +22,7 @@ self.addEventListener('install', (event) => {
 	event.waitUntil(
 		caches
 			.open(SHELL)
-			.then((c) => c.addAll([...new Set([...build, ...files, OFFLINE])]))
+			.then((c) => c.addAll(precacheUrls(location.origin, build, files, [OFFLINE])))
 			.then(() => self.skipWaiting())
 	);
 });
