@@ -27,6 +27,7 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database â
 ## Table of contents
 
 - [What is stichpunkt?](#what-is-stichpunkt)
+- [Demo](#demo)
 - [Features](#features)
 - [Screenshots](#screenshots)
 - [Quickstart](#quickstart)
@@ -44,6 +45,14 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database â
 *Stichpunkt* is German for "bullet point". It is a small wiki server built around one idea: **your knowledge base is just a directory of markdown files**. The server renders those files to a fast, mobile-first reading UI, keeps an in-memory index for search, tags and backlinks, and exposes the same operations over a REST API and an [MCP](https://modelcontextprotocol.io) server.
 
 The web UI is deliberately **read-only**. Changes are made by agents (or scripts) writing through MCP or the token-protected REST API, so humans get a clean reading experience and agents get a safe, conflict-aware write path. Because the files are plain markdown, you can still edit, sync, grep and back them up with any tool you like.
+
+## Demo
+
+A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest commit on `main` and is redeployed automatically a few minutes after each push.
+
+- The demo uses **example content only** (the `examples/knowledge` folder). Do not enter real or personal data.
+- The demo is **not connected** to any production instance or knowledge base. Its write API is closed: the access token is generated at each start and never stored, so agents cannot write to it.
+- The demo space is a copy of the example folder on the host. To reset it, restore that copy and restart the container.
 
 ## Features
 
