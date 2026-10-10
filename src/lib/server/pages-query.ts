@@ -1,6 +1,6 @@
 import * as yaml from 'js-yaml';
+import MarkdownIt from 'markdown-it';
 import { z } from 'zod';
-import { escapeHtml } from './markdown';
 import type { PageRec, SpaceIndex } from './space';
 
 /**
@@ -239,7 +239,7 @@ export function runPagesQuery(
 	return { query, show, columns: resolveColumns(query, show), rows, total };
 }
 
-const e = escapeHtml;
+const e = (s: string) => MarkdownIt().utils.escapeHtml(s);
 const href = (path: string) => '/' + encodeURI(path);
 
 /**

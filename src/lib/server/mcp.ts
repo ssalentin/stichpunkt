@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { BRAND } from '../brand';
+import { mcpVersion } from '../version';
 import { MdwikiError } from './errors';
 import type { Mdwiki } from './service';
 
@@ -32,7 +33,7 @@ async function run(fn: () => unknown | Promise<unknown>): Promise<ToolResult> {
 
 /** Same service layer as REST; one server instance per request (stateless). */
 export function buildMcpServer(mdwiki: Mdwiki): McpServer {
-	const server = new McpServer({ name: BRAND, version: '0.1.0' });
+	const server = new McpServer({ name: BRAND, version: mcpVersion() });
 	const path = z.string().describe('Page name without ".md", e.g. "Server/SilverBullet"');
 
 	server.registerTool(
@@ -99,6 +100,15 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 			}
 		},
 		({ self, ...query }) => run(() => mdwiki.queryPages(query, self ?? ''))
+	);
+	server.registerTool(
+		'evaluate',
+		{
+			description:
+				'Evaluate one ${...} expression against the index and return the JSON value plus its rendered text form. `page` sets `this`. Read only.',
+			inputSchema: { expr: z.string(), page: z.string().optional() }
+		},
+		({ expr, page }) => run(() => mdwiki.evaluateExpression(expr, page ?? ''))
 	);
 	server.registerTool(
 		'upload_attachment',

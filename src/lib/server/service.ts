@@ -1,9 +1,12 @@
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
-import { escapeHtml, parseFrontmatter, renderBody, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
+import { escapeHtml, parseFrontmatter, renderBody, type ExprSource, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
 import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
+import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
+import { renderValue } from './expr-render';
+import { valueToJson, valueToText } from './expr-render';
 import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
 import { hashOf, Store } from './store';
@@ -35,8 +38,10 @@ export interface TreeNode {
 interface CacheEntry {
 	hash: string;
 	setVersion: number;
-	/** index generation for pages with widgets (their output depends on other pages), else 0 */
+	/** index generation for pages with widgets/expressions (their output depends on other pages), else 0 */
 	version: number;
+	/** day key when the page uses `today()`, else '' */
+	day: string;
 	rendered: Rendered;
 }
 
@@ -99,6 +104,29 @@ export class Mdwiki {
 	getBacklinks(page: string) {
 		const name = this.pageName(page);
 		return this.index.backlinks(this.index.resolve(name, '') ?? name);
+	}
+
+	/**
+	 * Evaluates one expression against the index (MCP `evaluate` / `POST /api/v1/eval`). `page`
+	 * sets `this`; an unknown page is a bad request. Parsing failures are 400s; runtime failures
+	 * (unknown name, type error, a limit) are 400s too, because this is a diagnostic entry point.
+	 */
+	evaluateExpression(expr: unknown, page = '') {
+		if (typeof expr !== 'string') throw new MdwikiError(400, 'bad_expr', '"expr" must be a string');
+		const self = page ? this.pageName(page) : '';
+		if (self && !this.index.get(self)) {
+			throw new MdwikiError(404, 'not_found', `Page "${self}" does not exist`);
+		}
+		const ctx: EvalContext = { index: this.index, self, budget: new QueryBudget(), now: new Date() };
+		try {
+			const parsed = parseExpr(expr);
+			const value = evaluateNode(parsed.node, ctx);
+			return { value: valueToJson(value), text: valueToText(value) };
+		} catch (e) {
+			if (e instanceof ExprParseError) throw new MdwikiError(400, 'bad_expr', e.message);
+			if (e instanceof ExprRuntimeError) throw new MdwikiError(400, 'expr_error', e.message);
+			throw e;
+		}
 	}
 
 	async readPage(page: string) {
@@ -181,12 +209,14 @@ export class Mdwiki {
 		const rec = this.index.get(name);
 		if (!rec) return null;
 		let entry = this.htmlCache.get(name);
+		const day = todayKey();
+		const dynamic = (e: CacheEntry) => e.rendered.widgets.length > 0 || e.rendered.pagesBlocks.length > 0 || e.rendered.exprs.length > 0;
 		if (
 			!entry ||
 			entry.hash !== rec.hash ||
 			entry.setVersion !== this.index.setVersion ||
-			(entry.rendered.widgets.length > 0 || entry.rendered.pagesBlocks.length > 0) &&
-			entry.version !== this.index.version
+			(dynamic(entry) && entry.version !== this.index.version) ||
+			(entry.day !== '' && entry.day !== day)
 		) {
 			const file = await this.store.read(pageToFile(name));
 			if (!file) return null;
@@ -200,13 +230,18 @@ export class Mdwiki {
 				label: (p) => this.index.displayName(p)
 			});
 			const withWidgets = this.fillWidgets(rendered.html, rendered.widgets, name);
-			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name);
-			const { html, failed } = await this.fillDiagrams(withPages, rendered.jobs);
+			// one query budget per page, shared by `pages` blocks and expressions
+			const budget = new QueryBudget();
+			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name, budget);
+			const withExprs = this.fillExpressions(withPages, rendered.exprs, name, budget);
+			const { html, failed } = await this.fillDiagrams(withExprs, rendered.jobs);
 			const done = { ...rendered, html };
+			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.exprs.length > 0;
 			entry = {
 				hash: hashOf(file.data),
 				setVersion: this.index.setVersion,
-				version: rendered.widgets.length || rendered.pagesBlocks.length ? this.index.version : 0,
+				version: dynamic ? this.index.version : 0,
+				day: rendered.exprs.some((x) => x.usesToday) ? day : '',
 				rendered: done
 			};
 			if (!failed) {
@@ -248,21 +283,46 @@ export class Mdwiki {
 
 	/**
 	 * Fills every `<!--pages:n-->` placeholder with the query result. An invalid block shows its
-	 * error message and the block source instead of failing the whole page.
+	 * error message and the block source instead of failing the whole page. All blocks share the
+	 * page's query budget with the expressions.
 	 */
-	private fillPagesBlocks(html: string, blocks: PagesBlock[], self: string): string {
+	private fillPagesBlocks(html: string, blocks: PagesBlock[], self: string, budget: QueryBudget): string {
 		if (!blocks.length) return html;
 		const out = blocks.map((block) => {
 			try {
+				budget.take();
 				return renderPagesResult(runPagesQuery(this.index, parsePagesBlock(block.source), self));
 			} catch (e) {
-				const message = e instanceof PagesQueryError ? e.message : 'Could not run this query';
+				const message =
+					e instanceof PagesQueryError || e instanceof ExprRuntimeError ? e.message : 'Could not run this query';
 				return renderPagesError(message, block.source);
 			}
 		});
 		return html
 			.replace(/<p><!--pages:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
 			.replace(/<!--pages:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
+	}
+
+	/**
+	 * Fills every `<!--expr:n-->` placeholder with the rendered value of an expression. A runtime
+	 * failure shows the red error chip with its message and the source text; it never blanks the
+	 * page. All expressions share the page's query budget with the `pages` blocks.
+	 */
+	private fillExpressions(html: string, exprs: ExprSource[], self: string, budget: QueryBudget): string {
+		if (!exprs.length) return html;
+		const ctx: EvalContext = { index: this.index, self, budget, now: new Date() };
+		const limited = `too many expressions on this page (limit ${MAX_EXPRS_PER_PAGE})`;
+		// every placeholder gets a rendering; past the limit it is the red error chip
+		const out = exprs.map((ex, i) => (i < MAX_EXPRS_PER_PAGE ? renderExpression(ex, ctx) : exprErrorChip(limited, ex.source)));
+		// the placeholder is an inline token: replace it inside its paragraph first, then anywhere
+		// a block result (a page list) replaces its whole paragraph, like a widget; inline stays inside
+		const isBlock = (h: string) => /^<(ul|ol|div|table)[\s>]/.test(h);
+		return html
+			.replace(/<p><!--expr:(\d+)--><\/p>/g, (_m, id) => {
+				const h = out[Number(id)] ?? '';
+				return isBlock(h) ? h : `<p>${h}</p>`;
+			})
+			.replace(/<!--expr:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
 	private async fillDiagrams(html: string, jobs: KrokiJob[]): Promise<{ html: string; failed: boolean }> {
@@ -331,6 +391,28 @@ export function errorBlock(label: string, message: string, source: string): stri
 		`<div class="diagram-error" role="alert"><strong>${escapeHtml(label)}: ${escapeHtml(message)}</strong>` +
 		`<pre><code>${escapeHtml(source)}</code></pre></div>\n`
 	);
+}
+
+/** Red error chip in the style of IS-181: the message and the source text, never blank. */
+export function exprErrorChip(message: string, source: string): string {
+	return (
+		`<span class="chip error" role="alert"><strong>expression error: ${escapeHtml(message)}</strong>` +
+		`<code>${escapeHtml(source)}</code></span>`
+	);
+}
+
+const todayKey = (now = new Date()) => now.toISOString().slice(0, 10);
+
+/** Renders one collected expression to inline HTML, degrading any failure to an error chip. */
+function renderExpression(ex: ExprSource, ctx: EvalContext): string {
+	try {
+		const parsed = parseExpr(ex.source);
+		const value = evaluateNode(parsed.node, ctx);
+		return renderValue(value);
+	} catch (e) {
+		const message = e instanceof Error ? e.message : 'could not evaluate';
+		return exprErrorChip(message, ex.source);
+	}
 }
 
 function conflict(cur: { data: Buffer } | null): MdwikiError {

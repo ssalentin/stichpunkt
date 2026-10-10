@@ -20,6 +20,7 @@ import yamlLang from 'highlight.js/lib/languages/yaml';
 import * as yaml from 'js-yaml';
 import MarkdownIt, { type Token } from 'markdown-it';
 import { diagramForLang, INERT_FENCES } from '../diagrams';
+import { ExprRuntimeError, parseExpr } from './expr';
 
 const HLJS: Record<string, unknown> = {
 	bash, sh: bash, shell: bash, css, diff, dockerfile, go, ini, toml: ini, java,
@@ -107,8 +108,22 @@ export interface RenderEnv {
 	widgets?: Widget[];
 	/** `pages` blocks in document order, referenced by their placeholder index */
 	pagesBlocks?: PagesBlock[];
+	/** expressions in document order, referenced by their placeholder index */
+	exprs?: ExprSource[];
 	usedClient?: Set<string>;
 	slugs?: Map<string, number>;
+}
+
+
+/**
+ * An expression collected during rendering. Only bodies that parse (or fail a parse limit) are
+ * collected; the service runs them. Everything else is the quiet "not run" chip and never lands here.
+ */
+export interface ExprSource {
+	/** raw source exactly as written, without the surrounding `${` and `}` */
+	source: string;
+	/** true when the AST calls `today()` (keys the render cache by day) */
+	usesToday: boolean;
 }
 
 
@@ -415,13 +430,31 @@ export function createMarkdown() {
 	};
 
 	r.expr_chip = (tokens, idx, _o, env: any) => {
-		const w = matchWidget(tokens[idx].content);
+		const content = tokens[idx].content as string;
+		// 1. the four `kb.*` presets have priority and stay unchanged
+		const w = matchWidget(content);
 		if (w) {
 			const list = (env.widgets ??= []);
 			list.push(w);
 			return `<!--widget:${list.length - 1}-->`;
 		}
-		return chipHtml(tokens[idx].content);
+		const inner = content.slice(2, -1).trim();
+		// 2. a body that mentions a `kb.` call (a Lua remnant) stays quiet
+		if (/\bkb\./.test(inner)) return chipHtml(content);
+		// 3. the rest is parsed with the new grammar; a parse failure stays quiet
+		let placeholder = false;
+		let usesToday = false;
+		try {
+			usesToday = parseExpr(inner).usesToday;
+			placeholder = true;
+		} catch (err) {
+			// an over-long / too-deep body is a real expression that failed: let it become a red chip
+			placeholder = err instanceof ExprRuntimeError;
+		}
+		if (!placeholder) return chipHtml(content);
+		const list = (env.exprs ??= []);
+		list.push({ source: inner, usesToday });
+		return `<!--expr:${list.length - 1}-->`;
 	};
 	const chipHtml = (content: string) =>
 		`<span class="chip inert" title="${escapeHtml(content)}">expression · not run</span>`;
@@ -631,6 +664,7 @@ export interface Rendered {
 	jobs: KrokiJob[];
 	widgets: Widget[];
 	pagesBlocks: PagesBlock[];
+	exprs: ExprSource[];
 	usedClient: string[];
 	headings: { level: number; text: string; slug: string }[];
 }
@@ -642,6 +676,7 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 		jobs: env.jobs ?? [],
 		widgets: env.widgets ?? [],
 		pagesBlocks: env.pagesBlocks ?? [],
+		exprs: env.exprs ?? [],
 		usedClient: [...(env.usedClient ?? [])],
 		headings: env.headings ?? []
 	};

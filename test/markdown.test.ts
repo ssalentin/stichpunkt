@@ -66,7 +66,7 @@ describe('SilverBullet-only syntax is inert', () => {
 	});
 
 	it('labels the placeholders plainly and runs nothing', () => {
-		const { html } = render('```space-lua\nprint(1)\n```\n\nvalue ${1 + 1}');
+		const { html } = render('```space-lua\nprint(1)\n```\n\nvalue ${kb.section(tag)}');
 		// block: language name + "not run", with a readable line count
 		expect(html).toContain('space-lua · not run');
 		expect(html).toContain('1 line');

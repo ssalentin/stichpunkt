@@ -3,9 +3,11 @@
  * Each loader imports its library on first use only, and `preload` starts the
  * fetch early so the diagram appears without showing its source first.
  */
+import { effectiveTheme } from './theme';
+
 type Renderer = (el: HTMLElement, source: string) => Promise<void>;
 
-const dark = () => !window.matchMedia('(prefers-color-scheme: light)').matches;
+const dark = () => effectiveTheme() === 'dark';
 
 let mermaidCounter = 0;
 const renderers: Record<string, Renderer> = {
@@ -28,14 +30,22 @@ const renderers: Record<string, Renderer> = {
 		}
 	},
 	async 'vega-lite'(el, source) {
-		const [{ default: embed }] = await Promise.all([import('vega-embed')]);
+		const [{ default: embed }, { expressionInterpreter }] = await Promise.all([
+			import('vega-embed'),
+			import('vega-interpreter')
+		]);
 		const spec = JSON.parse(source);
 		el.textContent = '';
 		await embed(el, spec, {
 			mode: 'vega-lite',
 			actions: false,
 			theme: dark() ? 'dark' : undefined,
-			renderer: 'svg'
+			renderer: 'svg',
+			// Vega compiles expressions with the Function constructor by default, which the CSP
+			// forbids. Parsing to an AST and evaluating it with the interpreter is the documented
+			// CSP-compliant route — instead of allowing `unsafe-eval`.
+			ast: true,
+			expr: expressionInterpreter
 		});
 	},
 	async katex(el, source) {

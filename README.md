@@ -36,6 +36,7 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database �
 - [Operations](#operations)
 - [Architecture](#architecture)
 - [Development](#development)
+- [Contributing](#contributing)
 - [License](#license)
 
 ## What is stichpunkt?
@@ -55,6 +56,11 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
 - Installable PWA; the service worker caches the shell and the last ~50 visited pages for offline reading.
 
+**Themes**
+
+- A selector in the header offers Light, Dark and System (default; follows the OS preference). The choice is stored in the browser (`localStorage`) and applied before first paint, so there is no flash on reload.
+- All colours are CSS variables in `src/app.css`; adding another theme means adding one `:root[data-theme='…']` block.
+
 **Diagrams**
 
 - Client-side and lazy: Mermaid, Vega-Lite, KaTeX.
@@ -64,16 +70,23 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 **Declarative queries**
 
 - A fenced ` ```pages ` block with a small YAML body lists pages from the index: filters `tag`, `folder`, `links-to`; `sort` by `title`, `modified`, `date` or any frontmatter key; `show` as `list`, `table` or `count`; `limit` defaults to 50 (max 200).
-- Strictly validated (js-yaml CORE + zod) — no expressions, no regex, nothing executed. The same engine backs the `query_pages` MCP tool and `POST /api/v1/query`.
+- Strictly validated (js-yaml CORE + zod) — no expressions, no regex, nothing executed. The same engine backs the `${...}` expressions, the `query_pages` MCP tool and `POST /api/v1/query`.
+
+**Expressions**
+
+- `${ ausdruck }` is evaluated by a small, own expression language: a Pratt parser and tree-walking evaluator written in TypeScript, with no `eval`, no Lua and no JavaScript runtime.
+- Server-side and read-only: literals, arithmetic and comparison, `and`/`or`/`not`, `??` and `?:`, field access and a fixed whitelist of builtins (`pages`, `count`, `page`, `sum`/`min`/`max`/`avg`, `len`, `join`, `lower`/`upper`, `round`, `today`/`date`/`days`/`fmt_date`, `link`). Records are `Map`s, so there is no JS property lookup.
+- Strict limits: 500 characters, 50 expressions, AST depth 32, a 10000-step budget, 20 engine queries per page and 10000-character strings. Output is always escaped.
+- An unreadable body stays a quiet chip; a runtime failure becomes a red chip with the message and the source.
 
 **SilverBullet compatibility**
 
-- SilverBullet-only syntax (`${...}`, `space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
-- The four known helper calls (`kb.section`, `kb.recent`, `kb.header`, `kb.categories`) are recognised by pattern and rendered as built-in server-side widgets.
+- SilverBullet-only syntax (`space-lua`, `space-style`, `query`, `template`) renders as an inert chip and is never executed.
+- The four known `${kb.*}` helper calls (`kb.section`, `kb.recent`, `kb.header`, `kb.categories`) are recognised before the expression grammar and rendered as built-in server-side widgets. Every other `${...}` in the old Lua style stays an inert chip.
 
 **Agent-friendly writes**
 
-- MCP tools and REST endpoints for search, read, write, append, delete and attachment upload.
+- MCP tools and REST endpoints for search, read, write, append, delete, expression evaluation and attachment upload.
 - Optimistic concurrency via content hash (`base_hash`, **409** on conflict) and per-file write serialisation.
 - Path safety: `..`, absolute paths, backslashes, dot-files and symlinks leaving `SPACE_DIR` are rejected.
 
@@ -99,8 +112,10 @@ cd stichpunkt
 
 cp .env.example .env             # set MDWIKI_API_TOKEN (openssl rand -base64 32)
 mkdir space                      # or copy your markdown directory here
-docker compose up -d --build
+STICHPUNKT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
 ```
+
+The footer shows the app version and the commit the build comes from. The Docker build has no `.git`, so pass the commit as shown; without it the footer says `unknown`.
 
 The sample [`compose.yml`](compose.yml) starts stichpunkt (port 3000 inside the container) and an internal Kroki container for server-side diagrams. **It does not publish a port** — put your reverse proxy in front (see [Reverse-proxy contract](#reverse-proxy-contract)).
 
@@ -199,7 +214,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `upload_attachment`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`.
 
 ## Operations
 
@@ -259,6 +274,10 @@ Test fixtures live in `test/fixtures/space` (synthetic, no real content).
 
 - Writes inside one process are serialised per file; optimistic concurrency via content hash protects against *other* writers, but the check-then-rename window against an external process writing at the same instant cannot be closed on a plain directory.
 - Page names starting with `api` or `mcp` as the first segment are not reachable through the UI (those prefixes are reserved for the token-protected interfaces).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). All GitHub text (PRs, issues, comments, commits, branch names, code comments) is in English.
 
 ## License
 

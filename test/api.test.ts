@@ -6,6 +6,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handle } from '../src/hooks.server';
 import { buildMcpServer } from '../src/lib/server/mcp';
+import { mcpVersion } from '../src/lib/version';
 import { makeMdwiki } from './helpers';
 
 const TOKEN = 'test-token-0123456789-0123456789-abcdef';
@@ -18,6 +19,7 @@ let pagesRoute: typeof import('../src/routes/api/v1/pages/[...path]/+server');
 let listRoute: typeof import('../src/routes/api/v1/pages/+server');
 let attachRoute: typeof import('../src/routes/api/v1/attachments/[...path]/+server');
 let queryRoute: typeof import('../src/routes/api/v1/query/+server');
+let evalRoute: typeof import('../src/routes/api/v1/eval/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
@@ -37,6 +39,7 @@ beforeAll(async () => {
 	listRoute = await import('../src/routes/api/v1/pages/+server');
 	attachRoute = await import('../src/routes/api/v1/attachments/[...path]/+server');
 	queryRoute = await import('../src/routes/api/v1/query/+server');
+	evalRoute = await import('../src/routes/api/v1/eval/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
@@ -308,6 +311,38 @@ describe('REST: POST /api/v1/query', () => {
 	});
 });
 
+describe('REST: POST /api/v1/eval', () => {
+	it('returns value and text for an expression', async () => {
+		const res = await call(evalRoute.POST, req('POST', '/api/v1/eval', { expr: '1 + 2 * 3' }));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toEqual({ value: 7, text: '7' });
+	});
+
+	it('resolves this from the optional page field', async () => {
+		const res = await call(evalRoute.POST, req('POST', '/api/v1/eval', { expr: 'this.title', page: 'Server/Alpha' }));
+		const body = await res.json();
+		expect(body.text).toBe('Alpha');
+	});
+
+	it('reports a runtime failure as a 400 with a message', async () => {
+		const res = await call(evalRoute.POST, req('POST', '/api/v1/eval', { expr: 'unknownName' }));
+		expect(res.status).toBe(400);
+		const body = await res.json();
+		expect(body.error).toBe('expr_error');
+		expect(body.message).toContain('unknown name');
+	});
+
+	it('requires the token', async () => {
+		const request = new Request('http://localhost/api/v1/eval', { method: 'POST', body: '{}' });
+		const res = await handle({
+			event: { url: new URL(request.url), request } as never,
+			resolve: async () => new Response('ok')
+		});
+		expect(res.status).toBe(401);
+	});
+});
+
 describe('/f/ attachment route', () => {
 	const get = (p: string) =>
 		call(fileRoute.GET, new Request('http://localhost/f/x'), { path: p }).then(
@@ -361,11 +396,18 @@ describe('MCP', () => {
 	}
 	const text = (r: unknown) => JSON.parse(((r as { content: { text: string }[] }).content[0]).text);
 
+	it('reports the build in serverInfo.version', async () => {
+		const client = await connect();
+		const version = client.getServerVersion()?.version;
+		expect(version).toMatch(/^\d+\.\d+\.\d+(\+[0-9a-f]{7})?$/);
+		expect(version).toBe(mcpVersion());
+	});
+
 	it('lists every tool of the spec', async () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'delete_page', 'get_backlinks', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'write_page'].sort()
+			['append_to_page', 'delete_page', 'evaluate', 'get_backlinks', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'write_page'].sort()
 		);
 	});
 
@@ -420,6 +462,15 @@ describe('MCP', () => {
 		}
 	});
 
+	it('evaluate returns the value and its text form, and errors as a tool error', async () => {
+		const c = await connect();
+		const r = await c.callTool({ name: 'evaluate', arguments: { expr: 'upper("hey") + "!"' } });
+		expect(text(r)).toEqual({ value: 'HEY!', text: 'HEY!' });
+		const bad = await c.callTool({ name: 'evaluate', arguments: { expr: '1/0' } });
+		expect((bad as { isError?: boolean }).isError).toBe(true);
+		expect(JSON.stringify(bad)).toContain('division by zero');
+	});
+
 	it('query_pages returns the same rows as the pages block', async () => {
 		const c = await connect();
 		const r = await c.callTool({
@@ -458,7 +509,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(11);
+		expect(json.result.tools.length).toBe(12);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });

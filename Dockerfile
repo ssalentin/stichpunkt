@@ -3,10 +3,13 @@ FROM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
+ARG STICHPUNKT_COMMIT=
 COPY . .
 RUN npm run build && npm prune --omit=dev
 
 FROM node:22-alpine
+ARG STICHPUNKT_COMMIT=
+LABEL org.opencontainers.image.revision=$STICHPUNKT_COMMIT
 ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \

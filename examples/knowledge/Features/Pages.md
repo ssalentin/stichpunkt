@@ -4,7 +4,7 @@ date: 2026-10-09
 ---
 # Pages block
 
-A fenced `pages` block lists pages from the index. The body is a small YAML object, checked against a fixed schema. There is no expression language and nothing is executed: the same query engine backs the four built-in widgets, the `query_pages` MCP tool and `POST /api/v1/query`.
+A fenced `pages` block lists pages from the index. The body is a small YAML object, checked against a fixed schema. The block itself contains no expression language and nothing is executed: the same query engine backs the four built-in widgets, the `${...}` expressions, the `query_pages` MCP tool and `POST /api/v1/query`. See [[Features/Expressions]] for the expression side.
 
 A page by tag, newest first:
 
