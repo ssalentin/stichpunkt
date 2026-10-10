@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { analyze, renderBody } from '../src/lib/server/markdown';
+import { analyze, renderBody, sectionOf } from '../src/lib/server/markdown';
 
 const render = (src: string, known: Record<string, string> = {}, label?: (p: string) => string) =>
 	renderBody(src, { dir: '', resolve: (t) => known[t] ?? null, label });
@@ -107,5 +107,86 @@ describe('other syntax', () => {
 		const { html } = renderBody('![x](_attachments/a%20b.png) [d](../Other.md)', { dir: 'Server' });
 		expect(html).toContain('src="/f/Server/_attachments/a%20b.png"');
 		expect(html).toContain('href="/Other"');
+	});
+});
+
+describe('footnotes', () => {
+	it('renders references, a footnote list and back links', () => {
+		const { html } = render('Text[^a] more[^b].\n\n[^a]: First note.\n[^b]: Second.');
+		expect(html).toContain('<sup class="footnote-ref"><a href="#fn1" id="fnref1">[1]</a></sup>');
+		expect(html).toContain('class="footnotes"');
+		expect(html).toContain('First note.');
+		expect(html).toContain('href="#fnref1"');
+	});
+
+	it('suffixes ids when the body is embedded (docId)', () => {
+		const html = renderBody('x[^a]\n\n[^a]: n', { dir: '', docId: 'e0' }).html;
+		expect(html).toContain('href="#fn-e0-1"');
+		expect(html).toContain('id="fnref-e0-1"');
+	});
+});
+
+describe('emoji', () => {
+	it('replaces known shortcodes and leaves unknown ones and code alone', () => {
+		const { html } = render(':tada: :+1: :nope: `:tada:`');
+		expect(html).toContain('🎉 👍 :nope: <code>:tada:</code>');
+	});
+
+	it('does not eat times or URLs', () => {
+		expect(render('at 10:30:15 see http://a.b').html).toContain('10:30:15');
+	});
+});
+
+describe('callouts', () => {
+	it('turns [!type] blockquotes into callouts with a title', () => {
+		const { html } = render('> [!tip] Short cut\n> Body **text**');
+		expect(html).toContain('class="callout callout-tip" data-callout="tip"');
+		expect(html).toContain('<span class="callout-name">Short cut</span>');
+		expect(html).toContain('<strong>text</strong>');
+		expect(html).not.toContain('[!tip]');
+		expect(html).not.toContain('<blockquote');
+	});
+
+	it('defaults the title to the type, maps aliases, and handles an empty body', () => {
+		const { html } = render('> [!caution]');
+		expect(html).toContain('callout-warning');
+		expect(html).toContain('<span class="callout-name">Caution</span>');
+	});
+
+	it('makes +/- callouts foldable', () => {
+		expect(render('> [!note]- Hidden\n> x').html).toContain('<details class="callout callout-note" data-callout="note">');
+		expect(render('> [!note]+ Open\n> x').html).toContain('<details class="callout callout-note" data-callout="note" open>');
+	});
+
+	it('escapes the title and leaves plain quotes alone', () => {
+		expect(render('> [!note] <b>x</b>\n> y').html).toContain('&lt;b&gt;x&lt;/b&gt;');
+		expect(render('> just a quote').html).toContain('<blockquote>');
+	});
+
+	it('supports nested content and a callout inside a callout', () => {
+		const { html } = render('> [!note] Outer\n> a\n>\n> > [!warning] Inner\n> > b');
+		expect(html).toContain('callout-note');
+		expect(html).toContain('callout-warning');
+		expect(html.match(/<\/div><\/div>/g)?.length).toBe(2);
+	});
+});
+
+describe('embeds', () => {
+	it('collects ![[Page]] and ![[Page#Heading]] as placeholders and index links', () => {
+		const r = render('![[A]]\n\n![[B#Sec]]');
+		expect(r.embeds).toEqual([{ target: 'A', heading: undefined }, { target: 'B', heading: 'Sec' }]);
+		expect(r.html).toContain('<!--embed:0-->');
+		expect(analyze('![[A]] ![[B#Sec]]').links.map((l) => l.target)).toEqual(['A', 'B']);
+	});
+
+	it('embeds an image file as an image', () => {
+		expect(renderBody('![[pic.png]]', { dir: 'Dir' }).html).toContain('<img src="/f/Dir/pic.png"');
+	});
+
+	it('extracts a section up to the next heading of the same or higher level', () => {
+		const body = '# T\nintro\n## A\na1\n### A.1\nsub\n## B\nb1';
+		expect(sectionOf(body, 'A')).toBe('a1\n### A.1\nsub');
+		expect(sectionOf(body, 'B')).toBe('b1');
+		expect(sectionOf(body, 'Nope')).toBeNull();
 	});
 });

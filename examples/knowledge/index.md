@@ -25,7 +25,8 @@ The app is **read only**: pages are written by agents through MCP (or the REST A
 8. [[Features/Expressions]]: the expression language for `${...}` and the built-in `kb.*` widgets.
 9. [[Features/Pages|Pages block]]: declarative lists, tables and counts from the index.
 10. [[Features/Search]]: ranked cards, facets and query filters.
-11. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
+11. [[Features/Callouts]], [[Features/Footnotes]], [[Features/Emoji]] and [[Features/Embeds|Embeds]]: richer Markdown.
+12. [[Features/Short-Page]] and [[Features/Long-Page]]: for testing scrolling on a phone.
 
 Browse the whole [[Projects]] collection, or look at the tag page for #example.
 

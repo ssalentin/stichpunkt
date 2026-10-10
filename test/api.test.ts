@@ -513,3 +513,44 @@ describe('MCP', () => {
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });
+
+describe('embeds (transclusion)', () => {
+	it('renders an embedded page and section, resolves loops and missing pages', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Host', '# Host\n\n![[Src#Part]]\n\n![[Src]]\n\n![[Gone]]\n\ninline ![[Src]] text');
+		await mdwiki.writePage('Src', '# Src\n\n## Part\n\nShared text[^n]\n\n[^n]: note\n\n## Other\n\nsecret\n\n![[Host]]');
+		const v = (await mdwiki.renderPage('Host'))!;
+		expect(v.html).toContain('data-embed="Src"');
+		expect(v.html).toContain('Shared text');
+		expect(v.html).toContain('embed-missing');
+		expect(v.html).toContain('would loop');
+		// headings inside an embed lose their ids and stay out of the host outline
+		expect(v.html).not.toMatch(/<h2 id="part"/);
+		expect(v.headings.map((h) => h.text)).toEqual(['Host']);
+		// the section embed excludes the other section; the whole-page embed includes it
+		expect(v.html.match(/secret/g)?.length).toBe(1);
+		// inline use degrades to a link
+		expect(v.html).toContain('inline <a class="wikilink" href="/Src">Src</a> text');
+		// the source lists the host as a backlink
+		expect((await mdwiki.renderPage('Src'))!.backlinks.map((b) => b.path)).toContain('Host');
+	});
+
+	it('re-renders the host when the source changes', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Src', 'v1');
+		await mdwiki.writePage('Host', '![[Src]]');
+		expect((await mdwiki.renderPage('Host'))!.html).toContain('v1');
+		await mdwiki.writePage('Src', 'v2');
+		expect((await mdwiki.renderPage('Host'))!.html).toContain('v2');
+	});
+
+	it('stops at the nesting limit', async () => {
+		const { mdwiki } = await makeMdwiki();
+		for (let i = 0; i < 6; i++) await mdwiki.writePage(`N${i}`, `level ${i}\n\n![[N${i + 1}]]`);
+		await mdwiki.writePage('N6', 'end');
+		const html = (await mdwiki.renderPage('N0'))!.html;
+		expect(html).toContain('level 3');
+		expect(html).not.toContain('level 4');
+		expect(html).toContain('nested too deeply');
+	});
+});
