@@ -1,4 +1,5 @@
 <script lang="ts">
+	import Icon from './Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { rank, type Titled } from '#lib/fuzzy';
 	import { recentPages, ui } from '#lib/ui.svelte';
@@ -22,13 +23,13 @@
 	});
 
 	const matches = $derived(mode === 'switch' ? rank(items, q, recentPages(), 12) : []);
-	type Row = { label: string; hint?: string; go: () => void };
+	type Row = { label: string; hint?: string; kind: 'page' | 'text'; go: () => void };
 	const rows = $derived.by<Row[]>(() => {
 		const name = q.trim().replace(/^\/+|\/+$/g, '');
 		const out: Row[] = [];
 		if (mode === 'switch') {
-			for (const m of matches) out.push({ label: m.title, hint: m.path !== m.title ? m.path : undefined, go: () => open(`/${encodeURI(m.path)}`) });
-			if (name) out.push({ label: `Search text for "${name}"`, hint: 'full-text', go: () => open(`/search?q=${encodeURIComponent(name)}`) });
+			for (const m of matches) out.push({ label: m.title, hint: m.path !== m.title ? m.path : undefined, kind: 'page', go: () => open(`/${encodeURI(m.path)}`) });
+			if (name) out.push({ label: `Search text for “${name}”`, hint: 'full-text', kind: 'text', go: () => open(`/search?q=${encodeURIComponent(name)}`) });
 		}
 		return out;
 	});
@@ -49,23 +50,36 @@
 {#if mode}
 	<div class="overlay" role="presentation" onclick={() => (ui.switcher = null)}>
 		<div class="switcher" role="dialog" aria-label="Quick switcher" tabindex="-1" onclick={(e) => e.stopPropagation()} onkeydown={key}>
-			<input
-				bind:this={input}
-				bind:value={q}
-				oninput={() => (sel = 0)}
-				placeholder="Jump to page…"
-				autocapitalize="off"
-				autocomplete="off"
-				spellcheck="false"
-				enterkeyhint="go"
-			/>
+			<div class="sw-input">
+				<Icon name="search" size={18} />
+				<input
+					bind:this={input}
+					bind:value={q}
+					oninput={() => (sel = 0)}
+					placeholder="Jump to page…"
+					aria-label="Jump to page"
+					autocapitalize="off"
+					autocomplete="off"
+					spellcheck="false"
+					enterkeyhint="go"
+				/>
+				<kbd>esc</kbd>
+			</div>
 			<ul>
 				{#each rows as r, i}
-					<li><button class:sel={i === sel}  onmouseenter={() => (sel = i)} onclick={r.go}>{r.label}{#if r.hint}<span class="muted"> {r.hint}</span>{/if}</button></li>
+					<li>
+						<button class:sel={i === sel} class:text={r.kind === 'text'} onmouseenter={() => (sel = i)} onclick={r.go}>
+							<Icon name={r.kind === 'text' ? 'text' : 'file'} size={15} />
+							<span class="sw-label">{r.label}</span>
+							{#if r.hint}<span class="sw-hint">{r.hint}</span>{/if}
+							{#if i === sel}<span class="sw-enter"><Icon name="enter" size={13} /></span>{/if}
+						</button>
+					</li>
 				{:else}
 					<li class="muted pad">No matching pages</li>
 				{/each}
 			</ul>
+			<div class="sw-foot muted"><span><kbd>↑</kbd><kbd>↓</kbd> navigate</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
 		</div>
 	</div>
 {/if}
