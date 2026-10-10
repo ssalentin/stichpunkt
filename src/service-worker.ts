@@ -1,11 +1,12 @@
 /// <reference lib="webworker" />
 import { version } from '$app/env';
 import { assets, immutable } from '$app/manifest';
+import { absolutePaths } from './lib/sw-paths';
 
 declare const self: ServiceWorkerGlobalScope;
 
-const build: string[] = immutable.map((f) => f.path);
-const files: string[] = assets.map((f) => f.path);
+const build: string[] = absolutePaths(immutable.map((f) => f.path), self.location.href);
+const files: string[] = absolutePaths(assets.map((f) => f.path), self.location.href);
 
 const SHELL = `shell-${version}`;
 const PAGES = 'pages-v1';
