@@ -15,15 +15,12 @@ export function tempSpace(): string {
 
 export async function makeMdwiki(opts: { poll?: number; env?: Record<string, string> } = {}) {
 	const dir = tempSpace();
-	const cache = fs.mkdtempSync(path.join(os.tmpdir(), 'mdwiki-cache-'));
 	const config = loadConfig({
 		SPACE_DIR: dir,
-		CACHE_DIR: cache,
 		MDWIKI_API_TOKEN: 'test-token',
-		KROKI_URL: '',
 		POLL_INTERVAL: String(opts.poll ?? 10_000),
 		...opts.env
 	} as NodeJS.ProcessEnv);
 	const mdwiki = await new Mdwiki(config).start(opts.poll !== undefined);
-	return { mdwiki, dir, cache };
+	return { mdwiki, dir };
 }

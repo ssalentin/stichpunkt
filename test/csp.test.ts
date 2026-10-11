@@ -102,15 +102,14 @@ describe('content page CSP header (SvelteKit serialization)', () => {
 	});
 });
 
-/** The two routes that had a sandbox CSP before must keep it verbatim. */
-describe('sandbox CSP on uploaded files and cached diagrams', () => {
+/** The upload route had a sandbox CSP before and must keep it verbatim. */
+describe('sandbox CSP on uploaded files', () => {
 	let dir: string;
 
 	beforeAll(async () => {
 		const made = await makeMdwiki();
 		dir = made.dir;
 		process.env.SPACE_DIR = dir;
-		process.env.CACHE_DIR = made.cache;
 		const svc = await import('../src/lib/server/service');
 		await svc.getMdwiki();
 		afterAll(async () => (await svc.getMdwiki()).stop());
@@ -128,18 +127,6 @@ describe('sandbox CSP on uploaded files and cached diagrams', () => {
 		});
 		expect(res.headers.get('content-security-policy')).toBe(
 			"sandbox; default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'"
-		);
-	});
-
-	it('keeps the sandbox CSP on /_ui/diagram/*', async () => {
-		const cacheDir = process.env.CACHE_DIR!;
-		const key = 'a'.repeat(40);
-		fs.mkdirSync(cacheDir, { recursive: true });
-		fs.writeFileSync(path.join(cacheDir, `${key}.svg`), '<svg></svg>');
-		const { GET } = await import('../src/routes/_ui/diagram/[key]/+server');
-		const res = await (GET as Function)({ params: { key } });
-		expect(res.headers.get('content-security-policy')).toBe(
-			"sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:"
 		);
 	});
 });

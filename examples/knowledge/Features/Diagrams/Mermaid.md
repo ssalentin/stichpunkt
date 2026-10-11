@@ -13,7 +13,7 @@ flowchart LR
   end
   A --> W[Wiki]
   W --> K[(Files)]
-  W -. render .-> D[Kroki]
+  W -. render .-> D[Browser]
 ```
 
 Without an init directive the dark default theme applies:

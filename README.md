@@ -75,7 +75,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 **Diagrams**
 
 - Client-side and lazy: Mermaid, Vega-Lite, KaTeX.
-- Server-side via [Kroki](https://kroki.io) (SVG cached by hash): PlantUML, C4-PlantUML, Graphviz, D2, ERD, Nomnoml, Svgbob, Ditaa.
+- Other fence languages (PlantUML, Graphviz, D2, ...) are not rendered; they appear as ordinary code blocks.
 - A placeholder holds the space until the figure is ready; broken diagrams show the error and the source.
 
 **Declarative queries**
@@ -128,7 +128,7 @@ STICHPUNKT_COMMIT=$(git rev-parse HEAD) docker compose up -d --build
 
 The footer shows the app version and the commit the build comes from. The Docker build has no `.git`, so pass the commit as shown; without it the footer says `unknown`.
 
-The sample [`compose.yml`](compose.yml) starts stichpunkt (port 3000 inside the container) and an internal Kroki container for server-side diagrams. **It does not publish a port** — put your reverse proxy in front (see [Reverse-proxy contract](#reverse-proxy-contract)).
+The sample [`compose.yml`](compose.yml) starts stichpunkt (port 3000 inside the container) behind your reverse proxy. **It does not publish a port** — put your reverse proxy in front (see [Reverse-proxy contract](#reverse-proxy-contract)).
 
 Without Docker:
 
@@ -179,11 +179,9 @@ Set via environment variables (see [`.env.example`](.env.example)).
 | --- | --- | --- |
 | `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
 | `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **at least 32 characters; empty, shorter or `change-me` = both always answer 401** (a startup error is logged). `openssl rand -base64 32` gives 44 |
-| `KROKI_URL` | empty | internal Kroki base URL; empty disables server-side diagrams (they show an error block) |
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
 | `MAX_UPLOAD_BYTES` | `20971520` | max size of an attachment |
-| `CACHE_DIR` | system temp (`/cache` in the image) | rendered diagram SVGs |
 | `BODY_SIZE_LIMIT` | `25M` (image) | adapter-node request body limit; keep ≥ `MAX_UPLOAD_BYTES` |
 | `PORT`, `HOST`, `PROTOCOL_HEADER`, `HOST_HEADER` | | adapter-node settings |
 
@@ -268,7 +266,6 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 
 - `docker compose stop` — keep containers.
 - `docker compose down` — remove containers; `space/` is a bind mount and is never touched.
-- `docker compose down -v` — also drops the diagram cache volume.
 
 ## Architecture
 
@@ -281,15 +278,14 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
                                            │   ├─ MCP server  src/routes/mcp
                                            │   └─ in-memory index (pages, tags, backlinks, search)
                                            │
-                       ┌───────────────────┼────────────────────┐
-                       ▼                   ▼                    ▼
-                  SPACE_DIR (*.md)    CACHE_DIR (SVG)     Kroki (internal)
+                                           ▼
+                                      SPACE_DIR (*.md)
 ```
 
 - **Files are the source of truth.** The index is rebuilt in memory and refreshed by polling mtimes, so edits made outside the app show up too.
 - **One service layer, three front doors.** The UI, REST API and MCP tools share the same operations (`src/lib/server/service.ts`).
-- **Server code** lives in `src/lib/server/` (store, markdown rendering, `pages` query engine, auth, path safety, Kroki client, MCP); diagram handling is behind one registry in `src/lib/diagrams.ts`.
-- **Single container**, plus an internal-only Kroki container that is never exposed to the internet.
+- **Server code** lives in `src/lib/server/` (store, markdown rendering, `pages` query engine, auth, path safety, MCP); diagram handling is behind one registry in `src/lib/diagrams.ts`.
+- **Single container.**
 
 ## Development
 
@@ -301,7 +297,7 @@ npm run build
 npm run dev         # vite dev server
 ```
 
-Try every feature against the example space (set `KROKI_URL` for server-side diagrams):
+Try every feature against the example space:
 
 ```sh
 SPACE_DIR=examples/knowledge node build/index.js

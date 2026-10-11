@@ -7,7 +7,7 @@ type CspDirectives = NonNullable<Config['csp']>['directives'];
  *
  * `vite.config.ts` hands this to SvelteKit's `kit.csp`, which augments the inline
  * hydration scripts (and transitions) with a nonce/hash of its own. The sandbox CSPs
- * on `/f/*` and `/_ui/diagram/*` are set by their route handlers and stay untouched.
+ * on `/f/*` are set by its route handler and stay untouched.
  */
 export const CSP_DIRECTIVES: CspDirectives = {
 	'default-src': ['self'],

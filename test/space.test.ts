@@ -185,3 +185,18 @@ describe('search', () => {
 		expect(mdwiki.search('hidden library page').results).toEqual([]);
 	});
 });
+
+describe('server-side diagram fences (removed feature)', () => {
+	it('render as ordinary code blocks, without an error block or placeholder', async () => {
+		const { mdwiki } = await setup();
+		const view = await mdwiki.renderPage('Syntax');
+		expect(view).not.toBeNull();
+		const html = view!.html;
+		expect(html).toContain('<pre><code');
+		expect(html).toContain('digraph G');
+		expect(html).toContain('Alice -&gt; Bob: hello');
+		expect(html).not.toContain('not configured');
+		expect(html).not.toContain('diagram-error');
+		expect(html).not.toContain('<!--');
+	});
+});

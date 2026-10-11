@@ -21,8 +21,6 @@ beforeAll(async () => {
 	dir = made.dir;
 	made.mdwiki.stop();
 	process.env.SPACE_DIR = dir;
-	process.env.CACHE_DIR = made.cache;
-	process.env.KROKI_URL = '';
 	process.env.MDWIKI_API_TOKEN = TOKEN;
 	pagesRoute = await import('../src/routes/api/v1/pages/[...path]/+server');
 	manifestRoute = await import('../src/routes/api/v1/manifest/+server');

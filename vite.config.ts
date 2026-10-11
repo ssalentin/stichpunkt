@@ -18,7 +18,7 @@ export default defineConfig({
 			// Hardening below the escaping: content pages get a real CSP. SvelteKit augments the
 			// inline hydration scripts (and transitions) with a nonce/hash of its own, so they must
 			// come from `kit.csp`, not a hand-built header in hooks.server.ts. The sandbox CSPs on
-			// /f/* and /_ui/diagram/* stay untouched.
+			// /f/* stays untouched.
 			csp: {
 				mode: 'auto',
 				directives: CSP_DIRECTIVES

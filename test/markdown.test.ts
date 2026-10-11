@@ -91,10 +91,11 @@ describe('other syntax', () => {
 		expect(html).toContain('data-line="4" disabled checked');
 	});
 
-	it('emits client placeholders and kroki jobs from one registry', () => {
+	it('emits client placeholders and leaves other diagram languages as code', () => {
 		const r = render('```mermaid\ngraph TD\n```\n\n```dot\ndigraph{}\n```\n\n$x^2$ and $$y$$');
 		expect(r.html).toContain('data-diagram="mermaid"');
-		expect(r.jobs).toMatchObject([{ kroki: 'graphviz', label: 'Graphviz' }]);
+		expect(r.html).toContain('<pre><code');
+		expect(r.html).toContain('digraph{}');
 		expect(r.usedClient.sort()).toEqual(['katex', 'mermaid']);
 		expect(r.html).toContain('class="math inline"');
 	});

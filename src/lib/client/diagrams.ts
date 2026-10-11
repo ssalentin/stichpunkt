@@ -92,7 +92,7 @@ export async function enhance(root: HTMLElement): Promise<void> {
 		[...nodes].map(async (el) => {
 			const id = el.dataset.diagram!;
 			const render = renderers[id];
-			if (!render) return; // server-rendered (Kroki) figures are not touched
+			if (!render) return; // no client renderer for this type
 			el.dataset.done = '1';
 			const source = (el.querySelector('.diagram-src') ?? el).textContent ?? '';
 			try {
