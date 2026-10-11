@@ -1,7 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { BRAND, BRAND_REPO, BRAND_TAGLINE } from '#lib/brand';
-	import { afterNavigate } from '$app/navigation';
+	import { afterNavigate, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import Icon from '#lib/components/Icon.svelte';
 	import ThemeSwitch from '#lib/components/ThemeSwitch.svelte';
@@ -9,6 +9,7 @@
 	import Switcher from '#lib/components/Switcher.svelte';
 	import Tree from '#lib/components/Tree.svelte';
 	import { APP_VERSION, APP_COMMIT, shortCommit } from '#lib/version';
+	import { startLive } from '#lib/client/live';
 	import { ui, visit } from '#lib/ui.svelte';
 	import { install, listenForInstall, pwa } from '#lib/client/pwa.svelte';
 	import { onMount } from 'svelte';
@@ -37,13 +38,59 @@
 		} catch {
 			/* private mode: both columns stay open */
 		}
+		const stopLive = startLive({ onChange: reload, onStatus: (on) => (ui.live = on) });
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
-		return listenForInstall();
+		const stopInstall = listenForInstall();
+		return () => {
+			stopLive();
+			stopInstall();
+		};
 	});
 	afterNavigate(() => {
 		ui.sheet = false;
 		if (page.data.kind === 'page' && page.data.name) visit(page.data.name);
 	});
+
+	/** the reader has text selected in the content: a reload would throw the selection away */
+	function selecting() {
+		const s = getSelection();
+		return !!s && !s.isCollapsed && !!s.anchorNode && !!document.querySelector('.main')?.contains(s.anchorNode);
+	}
+
+	let reloading = false;
+	let again = false;
+	let flashTimer: ReturnType<typeof setTimeout>;
+	/** content changed on the server: reload the data, then flash what changed in the tree and the recent list */
+	async function reload(paths: string[] | null) {
+		if (selecting()) {
+			const wait = () => {
+				if (selecting()) return;
+				document.removeEventListener('selectionchange', wait);
+				void reload(paths);
+			};
+			document.addEventListener('selectionchange', wait);
+			return;
+		}
+		if (reloading) {
+			again = true;
+			return;
+		}
+		reloading = true;
+		try {
+			await invalidateAll();
+		} finally {
+			reloading = false;
+		}
+		if (paths?.length) {
+			ui.flash = new Set(paths);
+			clearTimeout(flashTimer);
+			flashTimer = setTimeout(() => (ui.flash = new Set()), 3500);
+		}
+		if (again) {
+			again = false;
+			void reload(null);
+		}
+	}
 
 	function remember(key: string, open: boolean) {
 		try {
@@ -102,7 +149,7 @@
 		<Tree nodes={data.tree} {current} />
 		<h2>Recent</h2>
 		<ul class="recent">
-			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path}>{r.title}</a></li>{/each}
+			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path} class:live-changed={ui.flash.has(r.path)}>{r.title}</a></li>{/each}
 		</ul>
 		<h2>Tags</h2>
 		<p class="taglist">
@@ -111,7 +158,7 @@
 	</aside>
 
 	<main class="main">{#key page.url.pathname}<div class="main-inner">{@render children()}</div>{/key}
-		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()} · <a href={BRAND_REPO} target="_blank" rel="noopener noreferrer">GitHub</a></footer>
+		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()} · <a href={BRAND_REPO} target="_blank" rel="noopener noreferrer">GitHub</a> · <span class="live" class:on={ui.live} title={ui.live ? 'Live updates: connected' : 'Live updates: not connected'}><span class="live-dot" aria-hidden="true"></span>{ui.live ? 'live' : 'offline'}</span></footer>
 	</main>
 
 	<aside class="right">
@@ -135,5 +182,5 @@
 	{/if}
 
 	<Switcher />
-	{#if ui.toast}<div class="toast" role="status">{ui.toast}</div>{/if}
+	{#if ui.toast}<div class="toast" role="status">{ui.toast}{#if ui.toastAction}<button class="toast-action" onclick={() => (ui.toastAction?.run(), (ui.toast = ''), (ui.toastAction = null))}>{ui.toastAction.label}</button>{/if}</div>{/if}
 </div>

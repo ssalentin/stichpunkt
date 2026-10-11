@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Self from './Tree.svelte';
+	import { ui } from '#lib/ui.svelte';
 
 	interface Node {
 		name: string;
@@ -17,13 +18,13 @@
 			{#if n.children.length}
 				<details open={current === n.path || current.startsWith(n.path + '/')}>
 					<summary>
-						{#if n.page}<a href="/{encodeURI(n.path)}" class:active={current === n.path}>{n.name}</a>
+						{#if n.page}<a href="/{encodeURI(n.path)}" class:active={current === n.path} class:live-changed={ui.flash.has(n.path)}>{n.name}</a>
 						{:else}<a href="/ns/{encodeURI(n.path)}" class="folder">{n.name}/</a>{/if}
 					</summary>
 					<Self nodes={n.children} {current} />
 				</details>
 			{:else}
-				<a href="/{encodeURI(n.path)}" class:active={current === n.path}>{n.name}</a>
+				<a href="/{encodeURI(n.path)}" class:active={current === n.path} class:live-changed={ui.flash.has(n.path)}>{n.name}</a>
 			{/if}
 		</li>
 	{/each}

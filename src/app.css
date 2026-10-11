@@ -578,3 +578,31 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 .footnotes-list p { margin: 0.1rem 0; display: inline; }
 
 .install-btn { border-color: var(--accent); color: var(--accent); }
+
+/* ---- live reload ---- */
+.live-changed { animation: live-flash 3.2s ease-out; border-radius: 4px; }
+@keyframes live-flash {
+	0%, 35% { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--accent) 28%, transparent); }
+	100% { background: transparent; box-shadow: 0 0 0 0.3rem transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.live-changed { animation: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+.live { white-space: nowrap; }
+.live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
+.live.on .live-dot { background: var(--hl-string); }
+.toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+
+/* ---- live reload ---- */
+.live-changed { animation: live-flash 3.2s ease-out; border-radius: 4px; }
+@keyframes live-flash {
+	0%, 35% { background: color-mix(in srgb, var(--accent) 28%, transparent); box-shadow: 0 0 0 0.3rem color-mix(in srgb, var(--accent) 28%, transparent); }
+	100% { background: transparent; box-shadow: 0 0 0 0.3rem transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+	.live-changed { animation: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
+}
+.live { white-space: nowrap; }
+.live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
+.live.on .live-dot { background: var(--hl-string); }
+.toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
