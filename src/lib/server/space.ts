@@ -85,6 +85,8 @@ export class SpaceIndex {
 	private configTags = new Map<string, string>();
 	private timer: NodeJS.Timeout | null = null;
 	private polling = false;
+	/** called after a refresh that changed something (the service reloads the agent manifest) */
+	onChange: (() => Promise<void> | void) | null = null;
 
 	constructor(readonly store: Store) {}
 
@@ -132,6 +134,7 @@ export class SpaceIndex {
 			}
 			if (todo.length) changed = true;
 			if (changed) this.rebuild(true);
+			if (changed) await this.onChange?.();
 			return changed;
 		} finally {
 			this.polling = false;

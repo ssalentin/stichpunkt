@@ -1,3 +1,4 @@
+import { checkPage, MANIFEST_PAGE, manifestInstructions, parseManifest, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { KrokiClient } from './kroki';
@@ -63,6 +64,10 @@ export class Mdwiki {
 	readonly index: SpaceIndex;
 	readonly kroki: KrokiClient;
 	private htmlCache = new Map<string, CacheEntry>();
+	/** last valid manifest (kept when the file later turns invalid) */
+	private manifest: { rules: ManifestRules; prose: string; hash: string } | null = null;
+	/** issues of the MANIFEST.md currently on disk, when it is invalid */
+	private manifestInvalid: { hash: string; issues: ManifestIssue[] } | null = null;
 
 	constructor(readonly config: MdwikiConfig = loadConfig()) {
 		this.store = new Store(config.spaceDir, {
@@ -70,11 +75,13 @@ export class Mdwiki {
 			maxUploadBytes: config.maxUploadBytes
 		});
 		this.index = new SpaceIndex(this.store);
+		this.index.onChange = () => this.reloadManifest();
 		this.kroki = new KrokiClient(config.krokiUrl, config.cacheDir);
 	}
 
 	async start(poll = true): Promise<this> {
 		await this.index.init();
+		await this.reloadManifest();
 		if (poll) this.index.startPolling(this.config.pollInterval);
 		return this;
 	}
@@ -157,6 +164,72 @@ export class Mdwiki {
 		};
 	}
 
+	// ---- agent manifest --------------------------------------------------------------------
+
+	/** Re-reads MANIFEST.md from disk (start, poll). A valid file replaces the active manifest; an invalid one is logged and ignored. */
+	private async reloadManifest(): Promise<void> {
+		const file = await this.store.read(pageToFile(MANIFEST_PAGE));
+		if (!file) {
+			this.manifest = null;
+			this.manifestInvalid = null;
+			return;
+		}
+		const hash = hashOf(file.data);
+		if (hash === this.manifest?.hash || hash === this.manifestInvalid?.hash) return;
+		this.adoptManifest(file.data.toString('utf8'), hash);
+	}
+
+	private adoptManifest(raw: string, hash: string): void {
+		const res = parseManifest(raw);
+		if (res.ok) {
+			this.manifest = { ...res.value, hash };
+			this.manifestInvalid = null;
+		} else {
+			this.manifestInvalid = { hash, issues: res.issues };
+			console.error(`[mdwiki] MANIFEST.md is invalid, ${this.manifest ? 'keeping the last valid manifest' : 'no manifest active'}:`, JSON.stringify(res.issues));
+		}
+	}
+
+	/** Rules for the MCP `initialize` response; null without a valid manifest. */
+	manifestInstructions(): string | null {
+		return this.manifest ? manifestInstructions(this.manifest.rules) : null;
+	}
+
+	getManifest() {
+		if (!this.manifest) {
+			if (this.manifestInvalid) {
+				throw new MdwikiError(422, 'manifest_invalid', 'MANIFEST.md is invalid and no earlier valid version is active', { issues: this.manifestInvalid.issues });
+			}
+			return { exists: false as const };
+		}
+		return {
+			exists: true as const,
+			path: MANIFEST_PAGE,
+			hash: this.manifest.hash,
+			rules: this.manifest.rules,
+			prose: this.manifest.prose,
+			...(this.manifestInvalid ? { invalid_on_disk: { issues: this.manifestInvalid.issues } } : {})
+		};
+	}
+
+	/** Same warnings as a write would return, without writing. */
+	validatePage(page: unknown, content: unknown): { warnings: PageWarning[] } {
+		if (typeof page !== 'string') throw new MdwikiError(400, 'bad_path', '"path" must be a string');
+		if (typeof content !== 'string') throw new MdwikiError(400, 'bad_content', '"content" must be a string');
+		return { warnings: this.warningsFor(this.pageName(page), content) };
+	}
+
+	private warningsFor(page: string, content: string): PageWarning[] {
+		return checkPage(this.manifest?.rules ?? null, page, content);
+	}
+
+	/** Rejects an invalid MANIFEST before it reaches the disk. */
+	private assertManifestValid(page: string, content: string): void {
+		if (page !== MANIFEST_PAGE) return;
+		const res = parseManifest(content);
+		if (!res.ok) throw new MdwikiError(400, 'manifest_invalid', 'MANIFEST is invalid; the file was not changed', { issues: res.issues });
+	}
+
 	// ---- writes --------------------------------------------------------------------------
 
 	/** `baseHash`: undefined = overwrite blindly, "" = page must not exist, else must match. */
@@ -171,9 +244,11 @@ export class Mdwiki {
 				const ok = baseHash === '' ? cur === null : curHash === baseHash;
 				if (!ok) throw conflict(cur);
 			}
+			this.assertManifestValid(fileToPage(rel), content);
 			const info = await this.store.write(rel, data, 'page');
 			this.index.applyWrite(fileToPage(rel), content, info);
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null };
+			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(content, hashOf(data));
+			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), content) };
 		});
 	}
 
@@ -188,9 +263,11 @@ export class Mdwiki {
 			const sep = old && !old.endsWith('\n') ? '\n' : '';
 			const next = old + sep + text + (text.endsWith('\n') ? '' : '\n');
 			const data = Buffer.from(next, 'utf8');
+			this.assertManifestValid(fileToPage(rel), next);
 			const info = await this.store.write(rel, data, 'page');
 			this.index.applyWrite(fileToPage(rel), next, info);
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null };
+			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(next, hashOf(data));
+			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), next) };
 		});
 	}
 
@@ -200,6 +277,10 @@ export class Mdwiki {
 			const removed = await this.store.remove(rel);
 			if (!removed) throw new MdwikiError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
 			this.index.applyDelete(fileToPage(rel));
+			if (fileToPage(rel) === MANIFEST_PAGE) {
+				this.manifest = null;
+				this.manifestInvalid = null;
+			}
 			return { path: fileToPage(rel), deleted: true };
 		});
 	}

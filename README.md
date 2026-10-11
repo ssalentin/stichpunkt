@@ -223,8 +223,36 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `GET /api/v1/backlinks/<path>` | backlinks |
 | `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
+| `GET /api/v1/manifest` | the [agent manifest](#agent-manifest): `{exists, path, hash, rules, prose}` or `{exists: false}` |
+| `POST /api/v1/validate` | `{path, content}` → `{warnings}`; checks a page against the manifest, writes nothing |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
+
+`write_page`, `append_to_page` (and the REST writes behind them) return `warnings: [{rule, message, line?}]`, always present and empty when the page fits the manifest.
+
+## Agent manifest
+
+Optional. A page named `MANIFEST` (`MANIFEST.md` in the space root) holds the documentation rules of the space. The frontmatter is machine-readable, the body is prose for humans and agents. Without it Stichpunkt behaves exactly as before.
+
+```yaml
+---
+manifest: 1                       # required, version
+summary: "..."                    # required, 1..2000 chars, sent to agents as MCP `instructions`
+pages:                            # optional
+  required_frontmatter: [updated] # keys every page must carry
+  forbidden_prefixes: ["Sources:"] # lines starting like this (trimmed, outside code fences)
+folders:                          # optional; key = top-level folder
+  Notes: { owner: "Team", description: "..." }   # owner, template, description: optional strings
+checks: [secrets]                 # optional; v1 knows only "secrets"
+---
+Prose: the full rules in plain words.
+```
+
+All levels are strict: an unknown key makes the manifest invalid, so a typo cannot silently turn a rule off. A complete example is in [`examples/MANIFEST.md`](examples/MANIFEST.md).
+
+- **Reading.** On MCP connect agents get the `summary` plus a pointer to `get_manifest` as `instructions`; `get_manifest` (and `GET /api/v1/manifest`) returns `rules`, `prose` and the content `hash`.
+- **Writing.** There is no special write tool: use `write_page("MANIFEST", …, base_hash)`. An invalid manifest (YAML error, missing `manifest`/`summary`, unknown key, `summary` too long) is rejected with `400 manifest_invalid` plus the issues, and the file stays unchanged. `delete_page("MANIFEST")` switches the feature off. If the file is edited outside the app, a valid change is picked up by the poll; an invalid one is logged and the last valid manifest stays active (at startup: no manifest, `get_manifest` returns `manifest_invalid`).
+- **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped) and `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens). A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
 
 ## Operations
 

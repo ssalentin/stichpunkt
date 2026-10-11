@@ -407,7 +407,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'delete_page', 'evaluate', 'get_backlinks', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'write_page'].sort()
+			['append_to_page', 'delete_page', 'evaluate', 'get_backlinks', 'get_manifest', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page'].sort()
 		);
 	});
 
@@ -509,7 +509,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(12);
+		expect(json.result.tools.length).toBe(14);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });

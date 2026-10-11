@@ -33,7 +33,7 @@ async function run(fn: () => unknown | Promise<unknown>): Promise<ToolResult> {
 
 /** Same service layer as REST; one server instance per request (stateless). */
 export function buildMcpServer(mdwiki: Mdwiki): McpServer {
-	const server = new McpServer({ name: BRAND, version: mcpVersion() });
+	const server = new McpServer({ name: BRAND, version: mcpVersion() }, { instructions: mdwiki.manifestInstructions() ?? undefined });
 	const path = z.string().describe('Page name without ".md", e.g. "Server/SilverBullet"');
 
 	server.registerTool(
@@ -55,15 +55,25 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		'write_page',
 		{
 			description:
-				'Create or overwrite a page. With base_hash the write fails with a conflict if the page changed meanwhile; use "" to require that the page does not exist yet.',
+				'Create or overwrite a page. With base_hash the write fails with a conflict if the page changed meanwhile; use "" to require that the page does not exist yet. The response carries `warnings` (rule violations from the space MANIFEST, empty when everything fits); the write itself is never blocked by them.',
 			inputSchema: { path, content: z.string(), base_hash: z.string().optional() }
 		},
 		({ path, content, base_hash }) => run(() => mdwiki.writePage(path, content, base_hash))
 	);
 	server.registerTool(
 		'append_to_page',
-		{ description: 'Append text to a page (creates it when missing)', inputSchema: { path, content: z.string() } },
+		{ description: 'Append text to a page (creates it when missing). The response carries `warnings` for the resulting page, like write_page.', inputSchema: { path, content: z.string() } },
 		({ path, content }) => run(() => mdwiki.appendToPage(path, content))
+	);
+	server.registerTool(
+		'get_manifest',
+		{ description: 'The space\'s agent manifest (MANIFEST page): machine-readable rules plus prose. Returns {exists:false} when the space has none.', inputSchema: {} },
+		() => run(() => mdwiki.getManifest())
+	);
+	server.registerTool(
+		'validate_page',
+		{ description: 'Check page content against the manifest rules and return the same `warnings` as write_page, without writing anything', inputSchema: { path, content: z.string() } },
+		({ path, content }) => run(() => mdwiki.validatePage(path, content))
 	);
 	server.registerTool(
 		'delete_page',
