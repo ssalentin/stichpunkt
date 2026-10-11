@@ -40,4 +40,11 @@ describe('brand (stichpunkt)', () => {
 		}
 		expect(fs.readFileSync(path.join(root, 'src/service-worker.ts'), 'utf8')).toContain('/offline.html');
 	});
+
+	it('hides the column toggles where their column does not exist (specificity must beat `.top .icon`)', () => {
+		const css = fs.readFileSync(path.join(root, 'src/app.css'), 'utf8');
+		expect(css).toContain('.top .icon.col-toggle { display: none; }');
+		expect(css).toContain('.top .icon.col-toggle:not(.right-toggle) { display: inline-flex; }');
+		expect(css).toContain('.top .icon.right-toggle { display: inline-flex; }');
+	});
 });
