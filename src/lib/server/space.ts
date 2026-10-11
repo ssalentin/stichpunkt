@@ -70,6 +70,14 @@ export function pageTitle(path: string, frontmatter: Record<string, unknown>, he
 	return path.slice(path.lastIndexOf('/') + 1);
 }
 
+/** What `SpaceIndex.subscribe` listeners receive after the set of pages or their content changed. */
+export interface SpaceChange {
+	/** the index version after the change */
+	version: number;
+	/** pages that were added, edited or removed (not the pages whose rendering merely depends on them) */
+	paths: string[];
+}
+
 /** In-memory index over the files: titles, frontmatter, tags, links, backlinks, headings, full text. */
 export class SpaceIndex {
 	pages = new Map<string, PageRec>();
@@ -87,11 +95,18 @@ export class SpaceIndex {
 	private polling = false;
 	/** called after a refresh that changed something (the service reloads the agent manifest) */
 	onChange: (() => Promise<void> | void) | null = null;
+	private listeners = new Set<(change: SpaceChange) => void>();
 
 	constructor(readonly store: Store) {}
 
 	async init(): Promise<void> {
 		await this.refresh();
+	}
+
+	/** Calls `fn` after every change (an API write or a file edit found by the poll). Returns the unsubscribe function. */
+	subscribe(fn: (change: SpaceChange) => void): () => void {
+		this.listeners.add(fn);
+		return () => void this.listeners.delete(fn);
 	}
 
 	startPolling(intervalMs: number): void {
@@ -115,6 +130,7 @@ export class SpaceIndex {
 			const files = await this.store.scan();
 			const seen = new Set<string>();
 			let changed = false;
+			const touched: string[] = [];
 			const todo: FileInfo[] = [];
 			for (const f of files) {
 				const page = fileToPage(f.rel);
@@ -126,6 +142,7 @@ export class SpaceIndex {
 				if (!seen.has(page)) {
 					this.pages.delete(page);
 					if (page === 'CONFIG') this.configTags = new Map();
+					touched.push(page);
 					changed = true;
 				}
 			}
@@ -133,7 +150,8 @@ export class SpaceIndex {
 				await Promise.all(todo.slice(i, i + 16).map((f) => this.load(f)));
 			}
 			if (todo.length) changed = true;
-			if (changed) this.rebuild(true);
+			for (const f of todo) touched.push(fileToPage(f.rel));
+			if (changed) this.rebuild(true, touched);
 			if (changed) await this.onChange?.();
 			return changed;
 		} finally {
@@ -172,15 +190,15 @@ export class SpaceIndex {
 	applyWrite(page: string, content: string, info: FileInfo): void {
 		const isNew = !this.pages.has(page);
 		this.ingest(pageToFile(page), content, info);
-		this.rebuild(isNew);
+		this.rebuild(isNew, [page]);
 	}
 
 	applyDelete(page: string): void {
 		if (page === 'CONFIG') this.configTags = new Map();
-		if (this.pages.delete(page)) this.rebuild(true);
+		if (this.pages.delete(page)) this.rebuild(true, [page]);
 	}
 
-	private rebuild(setChanged: boolean): void {
+	private rebuild(setChanged: boolean, paths: string[] = []): void {
 		this.version++;
 		if (setChanged) this.setVersion++;
 		this.lower.clear();
@@ -209,6 +227,14 @@ export class SpaceIndex {
 			}
 		}
 		this.tagPageMap = this.configTags;
+		const change: SpaceChange = { version: this.version, paths };
+		for (const fn of this.listeners) {
+			try {
+				fn(change);
+			} catch (e) {
+				console.error('[mdwiki] change listener failed:', e);
+			}
+		}
 	}
 
 	/** Exact path, then case-insensitive, then relative to the page's folder, then unique basename. */

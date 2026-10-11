@@ -3,6 +3,9 @@
 	import Logo from '#lib/components/Logo.svelte';
 	import { afterNavigate } from '$app/navigation';
 	import { enhance, preload } from '#lib/client/diagrams';
+	import { markChanges } from '#lib/client/live';
+	import { toast } from '#lib/ui.svelte';
+	import { tick } from 'svelte';
 
 	let { data } = $props();
 	let article: HTMLElement | undefined = $state();
@@ -10,10 +13,31 @@
 	// the knowledge base's start page wears the brand mark, like the landing page
 	const isHome = $derived(data.kind === 'page' && data.name === 'index');
 
+	// what this component showed last, to flash what a live reload changed (never reactive)
+	let shown: { name: string; html: string | null } | null = null;
+	let clearTimer: ReturnType<typeof setTimeout>;
+
 	$effect(() => {
-		data.view?.html;
+		const name = data.name;
+		const html = data.view?.html ?? null;
 		if (article) enhance(article);
+		const prev = shown;
+		shown = { name, html };
+		// only a reload of the page that is already open counts as a live change, not a navigation
+		if (!prev || prev.name !== name || prev.html === html) return;
+		void tick().then(() => announce(prev.html, html));
 	});
+
+	function announce(oldHtml: string | null, newHtml: string | null) {
+		if (oldHtml === null) return toast('This page was just created');
+		if (newHtml === null) return toast('This page was deleted');
+		const root = article?.querySelector<HTMLElement>('.md');
+		const first = root ? markChanges(root, oldHtml, newHtml, 'live-changed') : null;
+		clearTimeout(clearTimer);
+		clearTimer = setTimeout(() => root?.querySelectorAll('.live-changed').forEach((el) => el.classList.remove('live-changed')), 3500);
+		const offscreen = first && (first.getBoundingClientRect().bottom < 0 || first.getBoundingClientRect().top > innerHeight);
+		toast('Page updated', offscreen ? { label: 'Show change', run: () => first.scrollIntoView({ block: 'center', behavior: 'smooth' }) } : null);
+	}
 	afterNavigate(({ to }) => {
 		const hash = to?.url.hash;
 		if (hash) document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView();
