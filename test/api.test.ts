@@ -30,8 +30,6 @@ beforeAll(async () => {
 	outside = fs.mkdtempSync(path.join(os.tmpdir(), 'mdwiki-outside-'));
 	fs.writeFileSync(path.join(outside, 'secret.md'), 'top secret');
 	process.env.SPACE_DIR = dir;
-	process.env.CACHE_DIR = made.cache;
-	process.env.KROKI_URL = '';
 	process.env.MDWIKI_API_TOKEN = TOKEN;
 	process.env.MAX_WRITE_BYTES = '2000';
 	process.env.MAX_UPLOAD_BYTES = '5000';

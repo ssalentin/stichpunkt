@@ -14,13 +14,12 @@ ENV NODE_ENV=production \
     PORT=3000 \
     HOST=0.0.0.0 \
     SPACE_DIR=/space \
-    CACHE_DIR=/cache \
     BODY_SIZE_LIMIT=25M
 WORKDIR /app
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
-RUN mkdir -p /space /cache && chown node:node /cache
+RUN mkdir -p /space
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s \

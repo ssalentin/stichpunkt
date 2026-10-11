@@ -49,11 +49,9 @@ describe('GET /_ui/events', () => {
 	let svc: Awaited<ReturnType<typeof import('../src/lib/server/service')['getMdwiki']>>;
 
 	beforeAll(async () => {
-		const { dir, cache, mdwiki } = await makeMdwiki();
+		const { dir, mdwiki } = await makeMdwiki();
 		mdwiki.stop();
 		process.env.SPACE_DIR = dir;
-		process.env.CACHE_DIR = cache;
-		process.env.KROKI_URL = '';
 		process.env.MDWIKI_API_TOKEN = 'test-token-0123456789-0123456789-abcdef';
 		route = await import('../src/routes/_ui/events/+server');
 		svc = await (await import('../src/lib/server/service')).getMdwiki();

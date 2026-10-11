@@ -16,7 +16,7 @@ const ASSETS = 'assets-v1';
 const OFFLINE = '/offline.html';
 
 // Never cache the machine interfaces or mutating UI calls.
-const skip = (url: URL) => /^\/(api|mcp)(\/|$)/.test(url.pathname) || url.pathname.startsWith('/_ui/') && !url.pathname.startsWith('/_ui/diagram/');
+const skip = (url: URL) => /^\/(api|mcp)(\/|$)/.test(url.pathname) || url.pathname.startsWith('/_ui/');
 
 self.addEventListener('install', (event) => {
 	event.waitUntil(
@@ -72,7 +72,7 @@ self.addEventListener('fetch', (event) => {
 		return;
 	}
 
-	// attachments and cached diagrams: stale-while-revalidate
+	// attachments: stale-while-revalidate
 	event.respondWith(
 		caches.match(req).then((hit) => {
 			const net = fetch(req).then((res) => {

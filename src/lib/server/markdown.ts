@@ -86,13 +86,6 @@ export interface WikiLink {
 	alias?: string;
 }
 
-export interface KrokiJob {
-	id: number;
-	kroki: string;
-	label: string;
-	source: string;
-}
-
 export interface RenderEnv {
 	[key: string]: unknown;
 	/** resolves a wikilink target to an existing page path, or null */
@@ -106,7 +99,6 @@ export interface RenderEnv {
 	links?: WikiLink[];
 	tags?: Set<string>;
 	headings?: { level: number; text: string; slug: string }[];
-	jobs?: KrokiJob[];
 	widgets?: Widget[];
 	/** `pages` blocks in document order, referenced by their placeholder index */
 	pagesBlocks?: PagesBlock[];
@@ -608,16 +600,10 @@ export function createMarkdown() {
 			);
 		}
 		const dia = lang ? diagramForLang(lang) : undefined;
-		if (dia?.runtime === 'client') {
+		if (dia) {
 			(env.usedClient ??= new Set()).add(dia.id);
 			const tag = dia.id === 'katex' ? 'div class="math display"' : 'div class="diagram"';
 			return `<${tag} data-diagram="${dia.id}"><pre class="diagram-src">${escapeHtml(code)}</pre></${tag.split(' ')[0]}>\n`;
-		}
-		if (dia?.runtime === 'kroki') {
-			const jobs = (env.jobs ??= []);
-			const id = jobs.length;
-			jobs.push({ id, kroki: dia.kroki!, label: dia.label, source: code });
-			return `<!--kroki:${id}-->\n`;
 		}
 		let inner: string;
 		let cls = '';
@@ -790,7 +776,6 @@ export function analyze(raw: string): Analysis {
 
 export interface Rendered {
 	html: string;
-	jobs: KrokiJob[];
 	widgets: Widget[];
 	pagesBlocks: PagesBlock[];
 	exprs: ExprSource[];
@@ -803,7 +788,6 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 	const html = md.render(body, env as never);
 	return {
 		html,
-		jobs: env.jobs ?? [],
 		widgets: env.widgets ?? [],
 		pagesBlocks: env.pagesBlocks ?? [],
 		exprs: env.exprs ?? [],

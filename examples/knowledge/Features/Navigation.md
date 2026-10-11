@@ -16,7 +16,7 @@ tags: [feature]
 
 ## Search
 
-Full-text search shows snippets with highlighted matches. Try searching for `zebra` or `kroki`.
+Full-text search shows snippets with highlighted matches. Try searching for `zebra` or `mermaid`.
 
 ## Breadcrumbs
 

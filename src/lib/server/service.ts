@@ -1,8 +1,7 @@
 import { checkPage, MANIFEST_PAGE, manifestInstructions, parseManifest, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
-import { KrokiClient } from './kroki';
-import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type KrokiJob, type PagesBlock, type Rendered, type Widget } from './markdown';
+import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
 import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
 import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
@@ -56,13 +55,12 @@ interface EmbedCtx {
 	stack: string[];
 	docId: string;
 	/** shared by every level of one host page */
-	shared: { count: number; usedClient: Set<string>; failed: boolean };
+	shared: { count: number; usedClient: Set<string> };
 }
 
 export class Mdwiki {
 	readonly store: Store;
 	readonly index: SpaceIndex;
-	readonly kroki: KrokiClient;
 	private htmlCache = new Map<string, CacheEntry>();
 	/** last valid manifest (kept when the file later turns invalid) */
 	private manifest: { rules: ManifestRules; prose: string; hash: string } | null = null;
@@ -76,7 +74,6 @@ export class Mdwiki {
 		});
 		this.index = new SpaceIndex(this.store);
 		this.index.onChange = () => this.reloadManifest();
-		this.kroki = new KrokiClient(config.krokiUrl, config.cacheDir);
 	}
 
 	async start(poll = true): Promise<this> {
@@ -328,10 +325,8 @@ export class Mdwiki {
 			const budget = new QueryBudget();
 			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name, budget);
 			const withExprs = this.fillExpressions(withPages, rendered.exprs, name, budget);
-			const diagrams = await this.fillDiagrams(withExprs, rendered.jobs);
-			const embedded = await this.fillEmbeds(diagrams.html, rendered.embeds, name, { depth: 0, stack: [name], docId: '', shared: { count: 0, usedClient: new Set(), failed: false } });
+			const embedded = await this.fillEmbeds(withExprs, rendered.embeds, name, { depth: 0, stack: [name], docId: '', shared: { count: 0, usedClient: new Set() } });
 			const html = embedded.html;
-			const failed = diagrams.failed || embedded.failed;
 			const done = { ...rendered, html, usedClient: [...new Set([...rendered.usedClient, ...embedded.usedClient])] };
 			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.exprs.length > 0 || rendered.embeds.length > 0;
 			entry = {
@@ -341,10 +336,8 @@ export class Mdwiki {
 				day: rendered.exprs.some((x) => x.usesToday) ? day : '',
 				rendered: done
 			};
-			if (!failed) {
-				this.htmlCache.set(name, entry);
-				if (this.htmlCache.size > 500) this.htmlCache.delete(this.htmlCache.keys().next().value!);
-			}
+			this.htmlCache.set(name, entry);
+			if (this.htmlCache.size > 500) this.htmlCache.delete(this.htmlCache.keys().next().value!);
 		}
 		// a kb.recent widget already lists the tagged pages: do not append the automatic list as well
 		const hasRecent = entry.rendered.widgets.some((w) => w.kind === 'recent');
@@ -376,8 +369,8 @@ export class Mdwiki {
 	 * Embedded pages are rendered with the full pipeline, but their headings lose their ids (the
 	 * outline and anchors belong to the host page) and their footnote ids get a unique suffix.
 	 */
-	private async fillEmbeds(html: string, embeds: EmbedRef[], self: string, ctx: EmbedCtx): Promise<{ html: string; failed: boolean; usedClient: Set<string> }> {
-		if (!embeds.length) return { html, failed: ctx.shared.failed, usedClient: ctx.shared.usedClient };
+	private async fillEmbeds(html: string, embeds: EmbedRef[], self: string, ctx: EmbedCtx): Promise<{ html: string; usedClient: Set<string> }> {
+		if (!embeds.length) return { html, usedClient: ctx.shared.usedClient };
 		const out = await Promise.all(embeds.map((e, i) => this.renderEmbed(e, i, self, ctx)));
 		const inline = (id: string) => {
 			const e = embeds[Number(id)];
@@ -388,7 +381,7 @@ export class Mdwiki {
 		const filled = html
 			.replace(/<p><!--embed:(\d+)--><\/p>/g, (_m, id) => out[Number(id)]?.block ?? '')
 			.replace(/<!--embed:(\d+)-->/g, (_m, id) => inline(id));
-		return { html: filled, failed: ctx.shared.failed, usedClient: ctx.shared.usedClient };
+		return { html: filled, usedClient: ctx.shared.usedClient };
 	}
 
 	private async renderEmbed(e: EmbedRef, index: number, self: string, ctx: EmbedCtx): Promise<{ block: string }> {
@@ -415,9 +408,7 @@ export class Mdwiki {
 		let inner = this.fillWidgets(rendered.html, rendered.widgets, to);
 		inner = this.fillPagesBlocks(inner, rendered.pagesBlocks, to, budget);
 		inner = this.fillExpressions(inner, rendered.exprs, to, budget);
-		const dia = await this.fillDiagrams(inner, rendered.jobs);
-		if (dia.failed) ctx.shared.failed = true;
-		const nested = await this.fillEmbeds(dia.html, rendered.embeds, to, { ...ctx, depth: ctx.depth + 1, stack: [...ctx.stack, to], docId });
+		const nested = await this.fillEmbeds(inner, rendered.embeds, to, { ...ctx, depth: ctx.depth + 1, stack: [...ctx.stack, to], docId });
 		for (const c of rendered.usedClient) ctx.shared.usedClient.add(c);
 		const content = nested.html.replace(/(<h[1-6]) id="[^"]*"/g, '$1');
 		const frag = e.heading ? '#' + slugify(e.heading) : '';
@@ -481,23 +472,6 @@ export class Mdwiki {
 			.replace(/<!--expr:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
-	private async fillDiagrams(html: string, jobs: KrokiJob[]): Promise<{ html: string; failed: boolean }> {
-		if (!jobs.length) return { html, failed: false };
-		let failed = false;
-		const out = await Promise.all(
-			jobs.map(async (job) => {
-				try {
-					const key = await this.kroki.render(job.kroki, job.source);
-					return `<figure class="diagram diagram-svg" data-diagram="${job.kroki}"><img src="/_ui/diagram/${key}" alt="${escapeHtml(job.label)} diagram" loading="lazy"></figure>\n`;
-				} catch (e) {
-					failed = true;
-					return errorBlock(job.label, (e as Error).message, job.source);
-				}
-			})
-		);
-		return { html: html.replace(/<!--kroki:(\d+)-->\n?/g, (_m, id) => out[Number(id)] ?? ''), failed };
-	}
-
 	// ---- navigation data -------------------------------------------------------------------
 
 	tree(): TreeNode[] {
@@ -540,13 +514,6 @@ export class Mdwiki {
 	private pageName(page: string): string {
 		return fileToPage(pageToFile(page));
 	}
-}
-
-export function errorBlock(label: string, message: string, source: string): string {
-	return (
-		`<div class="diagram-error" role="alert"><strong>${escapeHtml(label)}: ${escapeHtml(message)}</strong>` +
-		`<pre><code>${escapeHtml(source)}</code></pre></div>\n`
-	);
 }
 
 /** Red error chip in the style of IS-181: the message and the source text, never blank. */

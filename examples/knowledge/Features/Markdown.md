@@ -14,7 +14,6 @@ Standard CommonMark and GFM: *emphasis*, **strong**, ~~strikethrough~~, `inline 
 | Tool | Runs | Notes |
 | --- | --- | --- |
 | Mermaid | in the browser | lazy loaded |
-| PlantUML | in Kroki | SVG cached by hash |
 | A very long cell | `a-very-long-unbroken-identifier-that-would-overflow-a-phone-screen-if-not-scrollable` | tables scroll inside their own box |
 
 ## Tasks
