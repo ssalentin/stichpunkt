@@ -17,6 +17,9 @@ interface Change extends Hello {
 	paths: string[];
 }
 
+const RETRY_MIN = 3000;
+const RETRY_MAX = 60000;
+
 export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 	if (typeof EventSource === 'undefined') return () => {};
 	let es: EventSource | null = null;
@@ -24,6 +27,10 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 	/** changes that arrived while the tab was hidden; null = none, [] with `all` = unknown */
 	let held: Set<string> | null = null;
 	let heldAll = false;
+	/** EventSource only retries network errors; after a non-200 answer (502 while the server restarts) it gives up, so we reconnect ourselves */
+	let timer: ReturnType<typeof setTimeout> | null = null;
+	let delay = RETRY_MIN;
+	let stopped = false;
 
 	const deliver = (paths: string[] | null) => {
 		if (document.hidden) {
@@ -35,10 +42,39 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 		h.onChange(paths);
 	};
 
+	const schedule = () => {
+		if (stopped || timer) return;
+		timer = setTimeout(() => {
+			timer = null;
+			connect();
+		}, delay * (1 + Math.random() * 0.2));
+		delay = Math.min(delay * 2, RETRY_MAX);
+	};
+
+	/** a closed connection waits for its timer; try right away instead (tab visible again, network back) */
+	const retryNow = () => {
+		if (stopped || !timer) return;
+		clearTimeout(timer);
+		timer = null;
+		delay = RETRY_MIN;
+		connect();
+	};
+
 	const connect = () => {
-		es = new EventSource(url);
-		es.onopen = () => h.onStatus?.(true);
-		es.onerror = () => h.onStatus?.(false);
+		es?.close();
+		const source = (es = new EventSource(url));
+		source.onopen = () => {
+			delay = RETRY_MIN;
+			h.onStatus?.(true);
+		};
+		source.onerror = () => {
+			h.onStatus?.(false);
+			// readyState CONNECTING means the browser is retrying by itself
+			if (source.readyState === EventSource.CLOSED) {
+				source.close();
+				schedule();
+			}
+		};
 		es.addEventListener('hello', (e) => {
 			const hello = JSON.parse((e as MessageEvent).data) as Hello;
 			// a reconnect that finds a different version (or a restarted server) missed changes
@@ -53,17 +89,24 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 	};
 
 	const onVisible = () => {
-		if (document.hidden || !held) return;
+		if (document.hidden) return;
+		retryNow();
+		if (!held) return;
 		const paths = heldAll ? null : [...held];
 		held = null;
 		heldAll = false;
 		h.onChange(paths);
 	};
 	document.addEventListener('visibilitychange', onVisible);
+	window.addEventListener('online', retryNow);
 	connect();
 
 	return () => {
+		stopped = true;
+		if (timer) clearTimeout(timer);
+		timer = null;
 		document.removeEventListener('visibilitychange', onVisible);
+		window.removeEventListener('online', retryNow);
 		es?.close();
 	};
 }

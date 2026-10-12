@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { startLive } from '../src/lib/client/live';
 import type { SpaceChange } from '../src/lib/server/space';
 import { makeMdwiki } from './helpers';
@@ -96,6 +96,8 @@ describe('GET /_ui/events', () => {
 describe('startLive (client)', () => {
 	class FakeSource {
 		static all: FakeSource[] = [];
+		static CLOSED = 2;
+		readyState = 0;
 		handlers: Record<string, (e: { data: string }) => void> = {};
 		onopen: (() => void) | null = null;
 		onerror: (() => void) | null = null;
@@ -115,10 +117,14 @@ describe('startLive (client)', () => {
 	}
 	const doc = { hidden: false, listeners: new Map<string, () => void>(), addEventListener(n: string, f: () => void) { this.listeners.set(n, f); }, removeEventListener(n: string) { this.listeners.delete(n); } };
 
+	const win = { listeners: new Map<string, () => void>(), addEventListener(n: string, f: () => void) { this.listeners.set(n, f); }, removeEventListener(n: string) { this.listeners.delete(n); } };
+
 	const setup = () => {
 		FakeSource.all = [];
 		doc.hidden = false;
-		Object.assign(globalThis, { EventSource: FakeSource, document: doc });
+		doc.listeners.clear();
+		win.listeners.clear();
+		Object.assign(globalThis, { EventSource: FakeSource, document: doc, window: win });
 		const calls: (string[] | null)[] = [];
 		const status: boolean[] = [];
 		const stop = startLive({ onChange: (p) => calls.push(p), onStatus: (s) => status.push(s) });
@@ -156,5 +162,94 @@ describe('startLive (client)', () => {
 		doc.listeners.get('visibilitychange')!();
 		doc.listeners.get('visibilitychange')!();
 		expect(calls).toEqual([['A', 'B']]);
+	});
+
+	describe('reconnect', () => {
+		const fail = (es: FakeSource) => {
+			es.readyState = 2;
+			es.onerror!();
+		};
+		const withTimers = (fn: () => void) => () => {
+			vi.useFakeTimers();
+			vi.spyOn(Math, 'random').mockReturnValue(0);
+			try {
+				fn();
+			} finally {
+				vi.useRealTimers();
+				vi.restoreAllMocks();
+			}
+		};
+
+		it('opens a new connection after the backoff once the browser gave up', withTimers(() => {
+			const { es, status } = setup();
+			fail(es);
+			expect(es.closed).toBe(true);
+			expect(status).toEqual([false]);
+			vi.advanceTimersByTime(2999);
+			expect(FakeSource.all).toHaveLength(1);
+			vi.advanceTimersByTime(1);
+			expect(FakeSource.all).toHaveLength(2);
+		}));
+
+		it('leaves the browser alone while it is still retrying', withTimers(() => {
+			const { es } = setup();
+			es.onerror!(); // readyState CONNECTING
+			vi.advanceTimersByTime(120_000);
+			expect(FakeSource.all).toHaveLength(1);
+		}));
+
+		it('doubles the backoff up to 60 s and resets it after open', withTimers(() => {
+			setup();
+			const waits: number[] = [];
+			for (let i = 0; i < 7; i++) {
+				const before = FakeSource.all.length;
+				fail(FakeSource.all[before - 1]);
+				let t = 0;
+				while (FakeSource.all.length === before) {
+					vi.advanceTimersByTime(1000);
+					t += 1000;
+				}
+				waits.push(t);
+			}
+			expect(waits).toEqual([3000, 6000, 12000, 24000, 48000, 60000, 60000]);
+			const last = FakeSource.all[FakeSource.all.length - 1];
+			last.onopen!();
+			fail(last);
+			vi.advanceTimersByTime(3000);
+			expect(FakeSource.all).toHaveLength(9);
+		}));
+
+		it('keeps at most one timer pending', withTimers(() => {
+			const { es } = setup();
+			fail(es);
+			fail(es);
+			expect(vi.getTimerCount()).toBe(1);
+		}));
+
+		it('does not reconnect after stop()', withTimers(() => {
+			const { es, stop } = setup();
+			fail(es);
+			stop();
+			expect(vi.getTimerCount()).toBe(0);
+			vi.advanceTimersByTime(120_000);
+			expect(FakeSource.all).toHaveLength(1);
+			expect(doc.listeners.size).toBe(0);
+			expect(win.listeners.size).toBe(0);
+		}));
+
+		it.each(['visibilitychange', 'online'])('retries at once on %s when the connection is closed', (name) =>
+			withTimers(() => {
+				const { es } = setup();
+				const src = name === 'online' ? win : doc;
+				src.listeners.get(name)!(); // connected: nothing to do
+				expect(FakeSource.all).toHaveLength(1);
+				fail(es);
+				src.listeners.get(name)!();
+				expect(FakeSource.all).toHaveLength(2);
+				expect(vi.getTimerCount()).toBe(0);
+				fail(FakeSource.all[1]); // backoff was reset
+				vi.advanceTimersByTime(3000);
+				expect(FakeSource.all).toHaveLength(3);
+			})());
 	});
 });
