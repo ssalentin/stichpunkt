@@ -205,10 +205,11 @@ describe('startLive (client)', () => {
 				const before = FakeSource.all.length;
 				fail(FakeSource.all[before - 1]);
 				let t = 0;
-				while (FakeSource.all.length === before) {
+				while (FakeSource.all.length === before && t < 120_000) {
 					vi.advanceTimersByTime(1000);
 					t += 1000;
 				}
+				expect(FakeSource.all).toHaveLength(before + 1);
 				waits.push(t);
 			}
 			expect(waits).toEqual([3000, 6000, 12000, 24000, 48000, 60000, 60000]);
