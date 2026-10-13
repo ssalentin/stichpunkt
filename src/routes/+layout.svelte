@@ -173,6 +173,7 @@
 	</nav>
 
 	{#if ui.sheet && view}
+		<!-- svelte-ignore a11y_click_events_have_key_events -- decorative scrim; Escape is handled globally above -->
 		<div class="overlay sheet-bg" role="presentation" onclick={() => (ui.sheet = false)}>
 			<div class="sheet" role="dialog" aria-label="More" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 				<div class="grip"></div>
