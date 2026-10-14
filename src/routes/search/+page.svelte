@@ -4,6 +4,7 @@
 	import { goto } from '$app/navigation';
 
 	let { data } = $props();
+	// svelte-ignore state_referenced_locally -- q seeds from data.q once, then the effect below resyncs it on navigation
 	let q = $state(data.q);
 	$effect(() => void (q = data.q));
 

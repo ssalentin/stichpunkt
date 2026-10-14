@@ -174,6 +174,7 @@
 
 	{#if ui.sheet && view}
 		<div class="overlay sheet-bg" role="presentation" onclick={() => (ui.sheet = false)}>
+			<!-- svelte-ignore a11y_click_events_have_key_events -- onclick only stops propagation to the scrim; not a user action -->
 			<div class="sheet" role="dialog" aria-label="More" tabindex="-1" onclick={(e) => e.stopPropagation()}>
 				<div class="grip"></div>
 				<Panel {view} onnavigate={() => (ui.sheet = false)} />
