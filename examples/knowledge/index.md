@@ -18,7 +18,7 @@ The app is **read only**: pages are written by agents through MCP (or the REST A
 1. [[Features/Wikilinks]]: all link forms, aliases, heading links, missing pages.
 2. [[Features/Markdown]]: tables, tasks, code highlighting, images, quotes.
 3. [[Features/Tags]]: inline and frontmatter tags, automatic tag pages.
-4. [[Features/Diagrams/Overview|Diagrams]]: Mermaid, Vega-Lite and math.
+4. [[Features/Diagrams/Overview|Diagrams]]: Pele-rendered Mermaid, Vega-Lite and math.
 5. [[Features/Navigation]]: switcher, search, breadcrumbs, outline, backlinks.
 6. [[Features/Attachments]]: images and PDFs.
 7. [[Features/MCP-and-API]]: how agents write to the wiki.

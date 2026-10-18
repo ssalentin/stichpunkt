@@ -74,7 +74,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 
 **Diagrams**
 
-- Client-side and lazy: Mermaid, Vega-Lite, KaTeX.
+- Client-side and lazy: Mermaid rendered by Pele, Vega-Lite, KaTeX.
 - Other fence languages (PlantUML, Graphviz, D2, ...) are not rendered; they appear as ordinary code blocks.
 - A placeholder holds the space until the figure is ready; broken diagrams show the error and the source.
 
