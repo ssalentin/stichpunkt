@@ -43,7 +43,8 @@ describe('brand (stichpunkt)', () => {
 
 	it('bundles the example space for demo deployments without a volume', () => {
 		const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
-		expect(dockerfile).toContain('COPY --from=build /app/examples/knowledge/ /space/');
+		expect(dockerfile).toContain('COPY --from=build /app/examples/knowledge ./examples/knowledge');
+		expect(dockerfile).toContain('SPACE_FALLBACK_DIR=/app/examples/knowledge');
 	});
 
 	it('hides the column toggles where their column does not exist (specificity must beat `.top .icon`)', () => {

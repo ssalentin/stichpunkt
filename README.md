@@ -50,8 +50,8 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 
 A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest commit on `main` and is redeployed automatically a few minutes after each push.
 
-- The demo uses **example content only** (the `examples/knowledge` folder), bundled into the image at `/space`.
-  Deployments that mount a space volume override the bundled examples.
+- The demo uses **example content only** (the `examples/knowledge` folder), bundled into the image as a fallback
+  when `SPACE_DIR` is absent or empty. A non-empty mounted space overrides the examples.
 - The demo is **not connected** to any production instance or knowledge base. Its write API is closed: the access token is generated at each start and never stored, so agents cannot write to it.
 
 ## Features
@@ -178,6 +178,7 @@ Set via environment variables (see [`.env.example`](.env.example)).
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `SPACE_DIR` | `./space` (`/space` in the image) | markdown directory |
+| `SPACE_FALLBACK_DIR` | – (`/app/examples/knowledge` in the image) | read-only example space used when `SPACE_DIR` is absent or empty |
 | `MDWIKI_API_TOKEN` | – | bearer token for `/mcp` and `/api`; **at least 32 characters; empty, shorter or `change-me` = both always answer 401** (a startup error is logged). `openssl rand -base64 32` gives 44 |
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
