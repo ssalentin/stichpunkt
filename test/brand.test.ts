@@ -41,6 +41,11 @@ describe('brand (stichpunkt)', () => {
 		expect(fs.readFileSync(path.join(root, 'src/service-worker.ts'), 'utf8')).toContain('/offline.html');
 	});
 
+	it('bundles the example space for demo deployments without a volume', () => {
+		const dockerfile = fs.readFileSync(path.join(root, 'Dockerfile'), 'utf8');
+		expect(dockerfile).toContain('COPY --from=build /app/examples/knowledge/ /space/');
+	});
+
 	it('hides the column toggles where their column does not exist (specificity must beat `.top .icon`)', () => {
 		const css = fs.readFileSync(path.join(root, 'src/app.css'), 'utf8');
 		expect(css).toContain('.top .icon.col-toggle { display: none; }');
