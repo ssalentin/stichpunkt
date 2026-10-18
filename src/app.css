@@ -325,7 +325,21 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: va
 }
 @media (prefers-reduced-motion: reduce) { .diagram[data-diagram]:not(.diagram-ready):not(.diagram-failed)::after { animation: none; } }
 @keyframes diagram-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.diagram[data-diagram='mermaid'] { background: #0e1116; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem; }
+.diagram[data-diagram='mermaid'] {
+	--pele-bg: var(--bg);
+	--pele-fg: var(--fg);
+	--pele-muted: var(--muted);
+	--pele-line: var(--muted);
+	--pele-surface: var(--panel);
+	--pele-surface-alt: var(--bg);
+	--pele-border: var(--border);
+	--pele-accent: var(--accent);
+	--pele-critical: var(--danger);
+	--pele-error: var(--danger);
+	--pele-font: var(--sans);
+	--pele-font-mono: var(--mono);
+	background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem;
+}
 .diagram[data-diagram='mermaid'] svg { max-width: 100%; height: auto; }
 .diagram[data-diagram='vega-lite'] { text-align: left; }
 .diagram-src { text-align: left; }

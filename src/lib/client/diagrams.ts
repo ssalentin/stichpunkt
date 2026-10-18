@@ -9,25 +9,11 @@ type Renderer = (el: HTMLElement, source: string) => Promise<void>;
 
 const dark = () => effectiveTheme() === 'dark';
 
-let mermaidCounter = 0;
 const renderers: Record<string, Renderer> = {
 	async mermaid(el, source) {
-		const { default: mermaid } = await import('mermaid');
-		mermaid.initialize({
-			startOnLoad: false,
-			securityLevel: 'strict',
-			// diagrams sit on a dark panel in both themes, so the dark theme is the default;
-			// `%%{init}%%` directives in the source override it
-			theme: 'dark',
-			fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace'
-		});
-		const id = `mmd-${++mermaidCounter}`;
-		try {
-			const { svg } = await mermaid.render(id, source);
-			el.innerHTML = svg;
-		} finally {
-			document.getElementById(`d${id}`)?.remove(); // mermaid leaves error scaffolding behind
-		}
+		const { mount } = await import('pele');
+		const diagram = mount(el, source, { zoom: false });
+		if (diagram.error) throw diagram.error;
 	},
 	async 'vega-lite'(el, source) {
 		const [{ default: embed }, { expressionInterpreter }] = await Promise.all([
@@ -59,7 +45,7 @@ const renderers: Record<string, Renderer> = {
 };
 
 const preloaders: Record<string, () => Promise<unknown>> = {
-	mermaid: () => import('mermaid'),
+	mermaid: () => import('pele'),
 	'vega-lite': () => import('vega-embed'),
 	katex: () => import('katex')
 };
