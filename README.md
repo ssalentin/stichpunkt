@@ -50,9 +50,9 @@ The web UI is deliberately **read-only**. Changes are made by agents (or scripts
 
 A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest commit on `main` and is redeployed automatically a few minutes after each push.
 
-- The demo uses **example content only** (the `examples/knowledge` folder). Do not enter real or personal data.
+- The demo uses **example content only** (the `examples/knowledge` folder), bundled into the image at `/space`.
+  Deployments that mount a space volume override the bundled examples.
 - The demo is **not connected** to any production instance or knowledge base. Its write API is closed: the access token is generated at each start and never stored, so agents cannot write to it.
-- The demo space is a copy of the example folder on the host. To reset it, restore that copy and restart the container.
 
 ## Features
 
