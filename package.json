@@ -31,7 +31,7 @@
     "katex": "^0.19.0",
     "markdown-it": "^15.0.2",
     "markdown-it-footnote": "^4.0.0",
-    "mermaid": "^12.1.0",
+    "pele": "^1.6.0",
     "vega": "^6.4.0",
     "vega-embed": "^7.3.0",
     "vega-interpreter": "^2.3.2",
