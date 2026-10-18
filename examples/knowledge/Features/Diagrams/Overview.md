@@ -5,7 +5,7 @@ tags: [feature, diagrams]
 
 Diagrams are fenced code blocks; one registry maps the fence language to a renderer.
 
-**In the browser (lazy, only on pages that use them):** [[Features/Diagrams/Mermaid]], [[Features/Diagrams/Vega-Lite]], [[Features/Diagrams/Math]].
+**In the browser (lazy, only on pages that use them):** [[Features/Diagrams/Pele|Pele renderer]], [[Features/Diagrams/Mermaid]], [[Features/Diagrams/Vega-Lite]], [[Features/Diagrams/Math]].
 
 Other diagram languages (PlantUML, Graphviz, D2, ...) are not rendered; their fences appear as ordinary code blocks.
 
