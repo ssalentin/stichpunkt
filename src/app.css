@@ -807,6 +807,15 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 	.drawer { font-size: 1rem; }
 	.sheet { font-size: 0.96875rem; }
 
+	/* columns keep a readable width instead of collapsing to a sliver */
+	.md th, .md td { min-width: 8rem; }
+	.md th:first-child, .md td:first-child { width: 9rem; min-width: 9rem; }
+	.md td.num { white-space: nowrap; }
+	/* wide tables keep their columns readable and scroll; key/value tables fit the screen */
+	.md table.wide td.long:not(:first-child) { min-width: 22rem; }
+
+
+
 	/* horizontal scroll hint: fades at the edges only while the table overflows */
 	.table-wrap {
 		background:

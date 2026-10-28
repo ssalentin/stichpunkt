@@ -4,6 +4,33 @@ import { analyze, renderBody, sectionOf } from '../src/lib/server/markdown';
 const render = (src: string, known: Record<string, string> = {}, label?: (p: string) => string) =>
 	renderBody(src, { dir: '', resolve: (t) => known[t] ?? null, label });
 
+describe('tables', () => {
+	const table = [
+		'| Vertrag | Nr. | Beitrag |',
+		'|---|---|---|',
+		'| Rechtsschutz Komfort | 11 0096 1950 5604 | 33,40 € / Monat |'
+	].join('\n');
+
+	it('marks multi-column tables and numeric cells for the phone layout', () => {
+		const { html } = render(table);
+		expect(html).toContain('<table class="wide">');
+		expect(html).toContain('<td class="num">11 0096 1950 5604</td>');
+		expect(html).not.toContain('<td class="num">Rechtsschutz');
+	});
+
+	it('leaves key/value tables without the wide class', () => {
+		const { html } = render('| Baustein | Aufgabe |\n|---|---|\n| OpenRig | Trägt die Agententeams |');
+		expect(html).toContain('<table>');
+		expect(html).not.toContain('class="wide"');
+	});
+
+	it('keeps prose cells free of the numeric class', () => {
+		const { html } = render('| A | B |\n|---|---|\n| Ablauf 17.05., jährlich | 17.05.2027 |');
+		expect(html).toContain('<td>Ablauf 17.05., jährlich</td>');
+		expect(html).toContain('<td class="num">17.05.2027</td>');
+	});
+});
+
 describe('wikilinks', () => {
 	it('renders [[P]], [[P|alias]] and [[P#H]]', () => {
 		const known = { Page: 'Page', 'Dir/Other': 'Dir/Other' };
