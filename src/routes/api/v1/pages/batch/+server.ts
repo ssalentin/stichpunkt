@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { MdwikiError } from '#lib/server/errors';
-import { agentOf, fail, readJson } from '#lib/server/http';
+import { agentOf, fail, noteOf, readJson } from '#lib/server/http';
 import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
@@ -12,7 +12,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (body.dry_run !== undefined && typeof body.dry_run !== 'boolean') {
 			throw new MdwikiError(400, 'bad_request', '"dry_run" must be a boolean');
 		}
-		return json(await mdwiki.writePages(body.pages, body.dry_run ?? false, agentOf(request)));
+		return json(await mdwiki.writePages(body.pages, body.dry_run ?? false, agentOf(request), noteOf(request, body)));
 	} catch (e) {
 		return fail(e);
 	}

@@ -8,6 +8,7 @@ Agent-facing MCP tools and the matching REST routes. Page paths never carry `.md
 | `write_pages` | `POST /api/v1/pages/batch` | write several pages atomically |
 | `check_links` | `GET /api/v1/links` | read-only link audit |
 | `check_manifest` | `GET /api/v1/manifest/check` | read-only manifest validation |
+| `activity` | `GET /api/v1/activity` | revision activity across pages |
 | `history` | `GET /api/v1/history/<path>` | revision list |
 | `diff` | `GET /api/v1/diff/<path>` | unified diff against a revision |
 
@@ -33,7 +34,8 @@ POST /api/v1/pages/move   { "from": "Notes/Contact", "to": "Archive/Contact", "d
 - `#Heading`, `|alias` and `![[…]]` survive; nothing inside fenced or inline code is touched.
 - `unresolved` lists links that could refer to the page but cannot be rewritten safely (`ambiguous_basename`, `unresolvable`).
 - Existing destination → `409 target_exists`; same path → `400`; missing source → `404`; `dry_run` returns the plan without writing.
-- `overwrite: true` replaces an existing destination instead of failing. The overwritten page is kept in `.history` (marker `overwritten by move from <from>`); the response adds `overwrite`, `previous_hash` (content hash of the replaced page, `null` otherwise) and `base_hash` (hash of the moved content). `_attachments` folders and `.history` are never moved or deleted.
+- `overwrite: true` replaces an existing destination instead of failing. The overwritten page is kept in `.history` (marker `overwritten by move from <from>`); the response adds `overwrite`, `previous_hash` (content hash of the replaced page, `null` otherwise) and `base_hash` (hash of the moved content). `_attachments` folders are never moved or deleted.
+- The page's history moves with it: the moved page keeps its version numbers instead of restarting at version 1, and the move itself is recorded with `tool: "move_page"` and the marker `moved from <from>`.
 
 ## write_pages
 
@@ -96,18 +98,51 @@ GET /api/v1/history/<path>?limit=50
 ```jsonc
 {
   "path": "Notes/Contact",
-  "total": 3,
+  "total": 2,
   "revisions": [
-    { "id": "20261028T210012345Z-8e3dbe829eed", "hash": "8e3dbe829eed", "at": "2026-10-28T21:00:12.345Z", "size": 812, "agent": "alice" },
-    { "id": "20261028T204412102Z-1f0c9c2aa7b1", "hash": "1f0c9c2aa7b1", "at": "2026-10-28T20:44:12.102Z", "size": 790, "marker": "moved to Archive/Contact" }
+    {
+      "id": "20261028T210012345Z-8e3dbe829eed", "hash": "8e3dbe829eed", "version": 2,
+      "at": "2026-10-28T21:00:12.345Z", "size": 812,
+      "actor": "alice", "actor_source": "field", "actor_name": "Alice A.",
+      "tool": "write_page", "bytes_added": 42, "bytes_removed": 7,
+      "warnings": ["missing_frontmatter"], "note": "updated the address"
+    },
+    {
+      "id": "20261028T204412102Z-1f0c9c2aa7b1", "hash": "1f0c9c2aa7b1", "version": 1,
+      "at": "2026-10-28T20:44:12.102Z", "size": 790,
+      "actor": "unknown", "actor_source": "unknown", "actor_name": "unknown",
+      "tool": "delete_page", "bytes_added": 0, "bytes_removed": 790,
+      "warnings": [], "marker": "deleted"
+    }
   ]
 }
 ```
 
-- Newest first. The first write of a page has no revision (nothing was overwritten).
-- Deletions keep a revision with `marker: "deleted"`; moves one with `marker: "moved to <path>"`.
+- Newest first, `version` counts the records of this page from 1 (not reset by a move).
+- `actor` is a stable slug, never empty (`unknown` when the call named no actor). `actor_source` is `field` (agent argument / `X-Agent`), `human`, `token` (later) or `unknown`; this version produces `field` and `unknown`, a future web-UI write path passes `human`. Display names come from `actors` in the manifest (`actor_name`), never from the record.
+- `tool` is `write_page`, `append_to_page`, `move_page` or `delete_page`. `bytes_added` / `bytes_removed` describe the change that replaced this revision.
+- `warnings` lists the manifest rule names the write produced; `note` is the optional call note (trimmed to 500 characters).
+- Deletions keep a tombstone with the last version and the deleting actor; moves move the history with the page and add a `moved from <path>` record.
 - Revision files live in `.history/`, which no read tool, listing, attachment route or `/f/` route exposes.
 - Retention per page: `HISTORY_KEEP` (default 50, `0` keeps everything).
+
+## activity
+
+```
+activity(since?, actor?, folder?, page?, limit?)
+GET /api/v1/activity?since=&actor=&folder=&page=&limit=50
+```
+
+```jsonc
+{
+  "total": 12,
+  "records": [
+    { "path": "Notes/Contact", "version": 2, "actor": "alice", "actor_source": "field", "actor_name": "Alice A.", "tool": "write_page", "at": "…", "bytes_added": 42, "bytes_removed": 7, "warnings": [], "note": "…" }
+  ]
+}
+```
+
+Read-only, across every page, newest first. `since` takes an ISO/date value, `actor` a slug, `folder` a path prefix, `page` an exact path; `limit` defaults to 50 (max 500) and `total` counts before the limit.
 
 ## diff
 
@@ -134,6 +169,8 @@ GET /api/v1/diff/<path>?since=<id|hash|ISO time>
 
 `write_page`, `write_pages` and `append_to_page` return `actor`, `owner` and `owner_ok` next to `warnings`; in `write_pages` each `written` entry carries them. The values follow the configured folder owner and the optional actor (`agent` argument or `X-Agent` header).
 
+Every write also accepts an optional `note` (body field, or `X-Note` header on requests without a body), which is stored on the revision together with the actor, `actor_source`, the tool name and the warning rules.
+
 ## Revision storage
 
 ```
@@ -141,4 +178,4 @@ GET /api/v1/diff/<path>?since=<id|hash|ISO time>
 <space>/.history/Notes/Contact/20261028T210012345Z-8e3dbe829eed.json
 ```
 
-The `.md` file is the previous content verbatim; the sidecar holds `at`, `marker` and `agent`. Both live below a dot directory, which the space scanner and every path validator ignore.
+The `.md` file is the previous content verbatim; the sidecar holds `version`, `at`, `actor`, `actor_source`, `tool`, `bytes_added`, `bytes_removed`, `warnings`, `note` and `marker`. Both live below a dot directory, which the space scanner and every path validator ignore.

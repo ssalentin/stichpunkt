@@ -15,6 +15,8 @@ pages:
   require_agent: false
 folders:
   Projects: { owner: "Project leads", description: "One page per project" }
+actors:
+  alice: { name: "Alice A." }
 checks: [secrets, links, frontmatter, owner, stand_age]
 ---
 Prose rules for humans and agents.
@@ -35,6 +37,7 @@ All levels are strict: an unknown key makes the manifest invalid and the previou
 | `pages.stand_max_age_days` | maximum age in days, default `90` |
 | `pages.require_agent` | when `true`, a write without an actor warns `missing_actor`; default `false` |
 | `folders` | top-level folder → `{owner, template, description}`; `owner` is used by the `owner` check |
+| `actors` | actor slug → `{name}`; display names for history and activity. Records store only the slug |
 | `checks` | warnings to run: `secrets`, `links`, `frontmatter`, `owner`, `stand_age` |
 
 ## Warnings

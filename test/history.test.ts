@@ -47,17 +47,20 @@ describe('history', () => {
 		expect(list.revisions[0].marker).toBe('deleted');
 	});
 
-	it('records a move with "moved to" and the backlink rewrites', async () => {
+	it('moves the history with the page and records the backlink rewrites', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Notes/Contact', 'contact\n');
-		const linkHash = (await mdwiki.readPage('Notes/Overview').catch(() => null))?.hash;
-		expect(linkHash).toBeUndefined();
+		await mdwiki.writePage('Notes/Contact', 'contact v1\n');
+		await mdwiki.writePage('Notes/Contact', 'contact v2\n');
 		await mdwiki.writePage('Notes/Overview', 'see [[Notes/Contact]]\n');
 		await mdwiki.movePage('Notes/Contact', 'Archive/Contact');
-		const moved = await mdwiki.history('Notes/Contact');
-		expect(moved.revisions[0].marker).toBe('moved to Archive/Contact');
+		// the old path has no history left; the page keeps its versions at the new path
+		expect((await mdwiki.history('Notes/Contact')).total).toBe(0);
+		const moved = await mdwiki.history('Archive/Contact');
+		expect(moved.revisions.map((r) => r.version)).toEqual([2, 1]);
+		expect(moved.revisions[0]).toMatchObject({ marker: 'moved from Notes/Contact', tool: 'move_page' });
 		const rewritten = await mdwiki.history('Notes/Overview');
 		expect(rewritten.total).toBe(1);
+		expect(rewritten.revisions[0]).toMatchObject({ tool: 'move_page', actor: 'unknown', actor_source: 'unknown' });
 		const diff = await mdwiki.diff('Notes/Overview');
 		expect(diff.diff).toContain('-see [[Notes/Contact]]');
 		expect(diff.diff).toContain('+see [[Archive/Contact]]');
@@ -109,6 +112,86 @@ describe('history', () => {
 		await client.connect(a);
 		const r = await client.callTool({ name: 'read_page', arguments: { path: `.history/Notes/Secret/${id}` } });
 		expect(r.isError).toBe(true);
+	});
+});
+
+describe('revision records', () => {
+	it('stores version, actor, source, tool, byte counts, warnings and a trimmed note', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', '---\nmanifest: 1\nsummary: s\npages:\n  required_frontmatter: [Stand]\n---\n');
+		await mdwiki.writePage('Notes/Rec', 'old\n', undefined, 'alice', 'first');
+		await mdwiki.writePage('Notes/Rec', 'new line\nsecond\n', undefined, 'alice', 'x'.repeat(600));
+		const record = (await mdwiki.history('Notes/Rec')).revisions[0];
+		expect(record).toMatchObject({
+			version: 1,
+			actor: 'alice',
+			actor_source: 'field',
+			tool: 'write_page',
+			warnings: ['missing_frontmatter']
+		});
+		expect(record.bytes_added).toBeGreaterThan(0);
+		expect(record.bytes_removed).toBeGreaterThan(0);
+		expect(record.note).toHaveLength(500);
+		expect(record.marker).toBeUndefined();
+	});
+
+	it('uses "unknown" when no actor was given and the tool name of the operation', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Tools', 'a\n');
+		await mdwiki.appendToPage('Notes/Tools', 'b');
+		const appended = (await mdwiki.history('Notes/Tools')).revisions[0];
+		expect(appended).toMatchObject({ tool: 'append_to_page', actor: 'unknown', actor_source: 'unknown', version: 1 });
+	});
+
+	it('writes a delete tombstone with the last version and the deleting actor', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Tomb', 'v1\n');
+		await mdwiki.writePage('Notes/Tomb', 'v2\n');
+		await mdwiki.deletePage('Notes/Tomb', 'bob', 'cleanup');
+		const record = (await mdwiki.history('Notes/Tomb')).revisions[0];
+		expect(record).toMatchObject({ version: 2, marker: 'deleted', tool: 'delete_page', actor: 'bob', actor_source: 'field' });
+		expect(record.bytes_removed).toBeGreaterThan(0);
+		expect(record.bytes_added).toBe(0);
+	});
+
+	it('resolves display names from manifest actors without storing them', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', '---\nmanifest: 1\nsummary: s\nactors:\n  alice: { name: "Alice A." }\n---\n');
+		await mdwiki.writePage('Notes/ActorName', 'a\n', undefined, 'alice');
+		await mdwiki.writePage('Notes/ActorName', 'b\n', undefined, 'alice');
+		const record = (await mdwiki.history('Notes/ActorName')).revisions[0];
+		expect(record).toMatchObject({ actor: 'alice', actor_name: 'Alice A.' });
+		const dir = path.join(mdwiki.store.root, '.history', 'Notes', 'ActorName');
+		const sidecar = fs.readdirSync(dir).find((name) => name.endsWith('.json'))!;
+		expect(fs.readFileSync(path.join(dir, sidecar), 'utf8')).not.toContain('Alice A.');
+		expect(fs.readFileSync(path.join(dir, sidecar), 'utf8')).toContain('"alice"');
+	});
+});
+
+describe('activity', () => {
+	it('lists revisions across pages, newest first, with filters', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/A', 'a1\n', undefined, 'alice');
+		await mdwiki.writePage('Notes/A', 'a2\n', undefined, 'alice');
+		await mdwiki.writePage('Notes/B', 'b1\n', undefined, 'bob');
+		await mdwiki.writePage('Notes/B', 'b2\n', undefined, 'bob');
+		await mdwiki.writePage('Other/C', 'c1\n', undefined, 'alice');
+		await mdwiki.writePage('Other/C', 'c2\n', undefined, 'alice');
+		const all = await mdwiki.activity();
+		expect(all.total).toBe(3);
+		expect(new Set(all.records.map((r) => r.path))).toEqual(new Set(['Notes/A', 'Notes/B', 'Other/C']));
+		expect(all.records.map((r) => r.at)).toEqual([...all.records.map((r) => r.at)].sort().reverse());
+		const byActor = await mdwiki.activity(undefined, 'alice');
+		expect(byActor.records.map((r) => r.path).sort()).toEqual(['Notes/A', 'Other/C']);
+		const byFolder = await mdwiki.activity(undefined, undefined, 'Notes');
+		expect(byFolder.records.map((r) => r.path).sort()).toEqual(['Notes/A', 'Notes/B']);
+		const byPage = await mdwiki.activity(undefined, undefined, undefined, 'Other/C');
+		expect(byPage.total).toBe(1);
+		const limited = await mdwiki.activity(undefined, undefined, undefined, undefined, 2);
+		expect(limited.records).toHaveLength(2);
+		expect(limited.total).toBe(3);
+		const future = await mdwiki.activity(new Date(Date.now() + 86_400_000).toISOString());
+		expect(future.total).toBe(0);
 	});
 });
 

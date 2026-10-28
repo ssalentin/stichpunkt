@@ -26,6 +26,7 @@ let linksRoute: typeof import('../src/routes/api/v1/links/+server');
 let historyRoute: typeof import('../src/routes/api/v1/history/[...path]/+server');
 let diffRoute: typeof import('../src/routes/api/v1/diff/[...path]/+server');
 let checkManifestRoute: typeof import('../src/routes/api/v1/manifest/check/+server');
+let activityRoute: typeof import('../src/routes/api/v1/activity/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
@@ -50,6 +51,7 @@ beforeAll(async () => {
 	historyRoute = await import('../src/routes/api/v1/history/[...path]/+server');
 	diffRoute = await import('../src/routes/api/v1/diff/[...path]/+server');
 	checkManifestRoute = await import('../src/routes/api/v1/manifest/check/+server');
+	activityRoute = await import('../src/routes/api/v1/activity/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
@@ -417,7 +419,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'check_links', 'check_manifest', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_manifest', 'history', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
+			['activity', 'append_to_page', 'check_links', 'check_manifest', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_manifest', 'history', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});
 
@@ -519,7 +521,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(20);
+		expect(json.result.tools.length).toBe(21);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });
@@ -540,6 +542,20 @@ describe('REST: history and diff', () => {
 		expect(byHash.since.id).toBe(list.revisions[0].id);
 		const missing = await call(diffRoute.GET, req('GET', '/api/v1/diff/Ops/Rev?since=nope'), { path: 'Ops/Rev' });
 		expect(missing.status).toBe(404);
+	});
+
+	it('serves activity with filters and actor display names', async () => {
+		const res = await call(activityRoute.GET, req('GET', '/api/v1/activity?folder=Ops&limit=2'), {});
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.records.length).toBeLessThanOrEqual(2);
+		expect(body.total).toBeGreaterThanOrEqual(body.records.length);
+		for (const record of body.records) {
+			expect(record).toMatchObject({ path: expect.stringMatching(/^Ops\//), actor_source: 'unknown', tool: 'write_page' });
+			expect(record.actor_name).toBe('unknown');
+		}
+		const bad = await call(activityRoute.GET, req('GET', '/api/v1/activity?since=nope'));
+		expect(bad.status).toBe(400);
 	});
 
 	it('keeps .history out of pages, /f/ and attachments', async () => {

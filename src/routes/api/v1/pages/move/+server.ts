@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { MdwikiError } from '#lib/server/errors';
-import { agentOf, fail, readJson } from '#lib/server/http';
+import { agentOf, fail, noteOf, readJson } from '#lib/server/http';
 import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
@@ -18,7 +18,7 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (body.overwrite !== undefined && typeof body.overwrite !== 'boolean') {
 			throw new MdwikiError(400, 'bad_request', '"overwrite" must be a boolean');
 		}
-		return json(await mdwiki.movePage(body.from, body.to, body.dry_run ?? false, agentOf(request), body.overwrite ?? false));
+		return json(await mdwiki.movePage(body.from, body.to, body.dry_run ?? false, agentOf(request), body.overwrite ?? false, noteOf(request, body)));
 	} catch (e) {
 		return fail(e);
 	}

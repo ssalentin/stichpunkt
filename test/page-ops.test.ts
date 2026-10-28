@@ -135,20 +135,36 @@ describe('move_page', () => {
 		expect(await read(mdwiki, 'Notes/Target')).toBe('moved content\n');
 		expect(await exists(mdwiki, 'Notes/Source')).toBe(false);
 		const history = await mdwiki.history('Notes/Target');
-		expect(history.revisions[0].marker).toBe('overwritten by move from Notes/Source');
+		expect(history.revisions.map((r) => r.marker)).toEqual(
+			expect.arrayContaining(['overwritten by move from Notes/Source', 'moved from Notes/Source'])
+		);
 	});
 
-	it('never touches _attachments or .history on a move', async () => {
+	it('merges both histories on an overwrite move without duplicate versions', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 's0\n');
+		await mdwiki.writePage('Notes/Source', 's1\n');
+		await mdwiki.writePage('Notes/Target', 't0\n');
+		await mdwiki.writePage('Notes/Target', 't1\n');
+		await mdwiki.movePage('Notes/Source', 'Notes/Target', false, undefined, true);
+		const versions = (await mdwiki.history('Notes/Target')).revisions.map((r) => r.version);
+		expect(new Set(versions).size).toBe(versions.length);
+		expect(versions.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+	});
+
+	it('moves the history with the page and leaves _attachments alone', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('Notes/Source', 'v1\n');
 		await mdwiki.writePage('Notes/Source', 'v2\n');
 		await mdwiki.uploadAttachment('Notes/_attachments/pic.png', Buffer.from([137, 80, 78, 71]));
 		const root = mdwiki.store.root;
-		const historyFiles = fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'));
+		expect((await mdwiki.history('Notes/Source')).total).toBe(1);
 		await mdwiki.movePage('Notes/Source', 'Archive/Source');
 		expect(fs.existsSync(path.join(root, 'Notes/_attachments/pic.png'))).toBe(true);
-		const after = fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'));
-		expect(after).toEqual(expect.arrayContaining(historyFiles));
+		expect(fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'))).toEqual([]);
+		const moved = await mdwiki.history('Archive/Source');
+		expect(moved.revisions.map((r) => r.version)).toEqual([2, 1]);
+		expect(moved.revisions[0].marker).toBe('moved from Notes/Source');
 	});
 
 	it('is exposed as an MCP tool', async () => {

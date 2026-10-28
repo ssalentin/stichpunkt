@@ -11,8 +11,8 @@ import { isImageTarget, lineAt, PathResolver, rewriteLinksForMove, scanLinks } f
 import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
 import { hashOf, Store, type FileInfo } from './store';
-import { listRevisions, readRevision, recordRevision as writeRevision, type Revision } from './history';
-import { unifiedDiff } from './diff';
+import { listActivity, listRevisions, moveHistory, readRevision, recordRevision as writeRevision, type ActorSource, type Revision, type RevisionTool } from './history';
+import { changeStats, unifiedDiff } from './diff';
 
 export interface PageView {
 	path: string;
@@ -294,9 +294,10 @@ export class Mdwiki {
 	// ---- writes --------------------------------------------------------------------------
 
 	/** `baseHash`: undefined = overwrite blindly, "" = page must not exist, else must match. */
-	async writePage(page: string, content: unknown, baseHash?: string | null, agent?: string) {
+	async writePage(page: string, content: unknown, baseHash?: string | null, agent?: string, note?: string) {
 		if (typeof content !== 'string') throw new MdwikiError(400, 'bad_content', '"content" must be a string');
 		const rel = pageToFile(page);
+		const name = fileToPage(rel);
 		const data = Buffer.from(content, 'utf8');
 		return this.store.withLock(rel, async () => {
 			const cur = await this.store.read(rel);
@@ -305,40 +306,45 @@ export class Mdwiki {
 				const ok = baseHash === '' ? cur === null : curHash === baseHash;
 				if (!ok) throw conflict(cur);
 			}
-			this.assertManifestValid(fileToPage(rel), content);
-			if (cur) await this.recordRevision(fileToPage(rel), cur.data, { agent });
+			this.assertManifestValid(name, content);
+			const warnings = this.warningsFor(name, content, undefined, agent);
+			if (cur) await this.recordRevision(name, cur.data, { tool: 'write_page', agent, note, next: content, warnings: warnings.map((w) => w.rule) });
 			const info = await this.store.write(rel, data, 'page');
-			this.index.applyWrite(fileToPage(rel), content, info);
-			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(content, hashOf(data));
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), content, undefined, agent), ...this.actorInfo(fileToPage(rel), agent) };
+			this.index.applyWrite(name, content, info);
+			if (name === MANIFEST_PAGE) this.adoptManifest(content, hashOf(data));
+			return { path: name, hash: hashOf(data), created: cur === null, warnings, ...this.actorInfo(name, agent) };
 		});
 	}
 
-	async appendToPage(page: string, text: unknown, agent?: string) {
+	async appendToPage(page: string, text: unknown, agent?: string, note?: string) {
 		if (typeof text !== 'string' || text === '') {
 			throw new MdwikiError(400, 'bad_content', '"content" must be a non-empty string');
 		}
 		const rel = pageToFile(page);
+		const name = fileToPage(rel);
 		return this.store.withLock(rel, async () => {
 			const cur = await this.store.read(rel);
 			const old = cur ? cur.data.toString('utf8') : '';
 			const sep = old && !old.endsWith('\n') ? '\n' : '';
 			const next = old + sep + text + (text.endsWith('\n') ? '' : '\n');
 			const data = Buffer.from(next, 'utf8');
-			this.assertManifestValid(fileToPage(rel), next);
-			if (cur) await this.recordRevision(fileToPage(rel), cur.data, { agent });
+			this.assertManifestValid(name, next);
+			const warnings = this.warningsFor(name, next, undefined, agent);
+			if (cur) await this.recordRevision(name, cur.data, { tool: 'append_to_page', agent, note, next, warnings: warnings.map((w) => w.rule) });
 			const info = await this.store.write(rel, data, 'page');
-			this.index.applyWrite(fileToPage(rel), next, info);
-			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(next, hashOf(data));
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), next, undefined, agent), ...this.actorInfo(fileToPage(rel), agent) };
+			this.index.applyWrite(name, next, info);
+			if (name === MANIFEST_PAGE) this.adoptManifest(next, hashOf(data));
+			return { path: name, hash: hashOf(data), created: cur === null, warnings, ...this.actorInfo(name, agent) };
 		});
 	}
 
-	async deletePage(page: string, agent?: string) {
+	async deletePage(page: string, agent?: string, note?: string) {
 		const rel = pageToFile(page);
 		return this.store.withLock(rel, async () => {
 			const cur = await this.store.read(rel);
-			if (cur) await this.recordRevision(fileToPage(rel), cur.data, { agent, marker: 'deleted' });
+			if (cur) {
+				await this.recordRevision(fileToPage(rel), cur.data, { tool: 'delete_page', agent, note, marker: 'deleted', next: '', warnings: [] });
+			}
 			const removed = await this.store.remove(rel);
 			if (!removed) throw new MdwikiError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
 			this.index.applyDelete(fileToPage(rel));
@@ -357,7 +363,7 @@ export class Mdwiki {
 	 * keep working (a unique basename, a relative target inside the folder) stay untouched;
 	 * the move itself runs as one transaction with the rewritten backlinks.
 	 */
-	async movePage(fromInput: unknown, toInput: unknown, dryRun = false, agent?: string, overwrite = false) {
+	async movePage(fromInput: unknown, toInput: unknown, dryRun = false, agent?: string, overwrite = false, note?: string) {
 		if (typeof fromInput !== 'string' || typeof toInput !== 'string') {
 			throw new MdwikiError(400, 'bad_path', '"from" and "to" must be strings');
 		}
@@ -397,12 +403,39 @@ export class Mdwiki {
 				warnings
 			};
 			if (dryRun) return result;
-			const rewrittenPaths = new Set(plan.rewritten.map((r) => r.path));
-			if (target) await this.recordRevision(to, target.data, { agent, marker: `overwritten by move from ${from}` });
+			const rewritten = new Map(plan.rewritten.map((r) => [r.path, r.content]));
+			const ruleNames = warnings.map((w) => w.rule);
+			if (target) {
+				await this.recordRevision(to, target.data, {
+					tool: 'move_page',
+					agent,
+					note,
+					marker: `overwritten by move from ${from}`,
+					next: movedContent,
+					warnings: ruleNames
+				});
+			}
+			// the page keeps its history: no restart at version 1 on the new path
+			await moveHistory(this.store, from, to);
+			await this.recordRevision(to, source.data, {
+				tool: 'move_page',
+				agent,
+				note,
+				marker: `moved from ${from}`,
+				next: movedContent,
+				warnings: ruleNames
+			});
 			for (const page of pages) {
-				const data = Buffer.from(page.content, 'utf8');
-				if (page.path === from) await this.recordRevision(from, data, { agent, marker: `moved to ${to}` });
-				else if (rewrittenPaths.has(page.path)) await this.recordRevision(page.path, data, { agent });
+				if (page.path === from || page.path === to) continue;
+				const nextContent = rewritten.get(page.path);
+				if (nextContent === undefined) continue;
+				await this.recordRevision(page.path, Buffer.from(page.content, 'utf8'), {
+					tool: 'move_page',
+					agent,
+					note,
+					next: nextContent,
+					warnings: this.warningsFor(page.path, nextContent, after, agent).map((w) => w.rule)
+				});
 			}
 			const writes = [{ path: to, content: movedContent }, ...plan.rewritten.filter((r) => r.path !== to)];
 			const journal: { rel: string; prev: Buffer | null }[] = [];
@@ -435,7 +468,7 @@ export class Mdwiki {
 	 * checked before the first write, one index rebuild. A conflict changes nothing; an
 	 * unexpected disk error rolls the already written files back.
 	 */
-	async writePages(input: unknown, dryRun = false, agent?: string) {
+	async writePages(input: unknown, dryRun = false, agent?: string, note?: string) {
 		if (!Array.isArray(input)) throw new MdwikiError(400, 'bad_request', '"pages" must be an array');
 		const entries = input.map((raw, i) => this.batchEntry(raw, i));
 		const seen = new Set<string>();
@@ -472,7 +505,15 @@ export class Mdwiki {
 			if (dryRun) return { dry_run: true, written };
 			for (const entry of entries) {
 				const previousData = previous.get(entry.path);
-				if (previousData) await this.recordRevision(entry.path, previousData, { agent });
+				if (!previousData) continue;
+				const record = written.find((w) => w.path === entry.path);
+				await this.recordRevision(entry.path, previousData, {
+					tool: 'write_page',
+					agent,
+					note,
+					next: entry.content,
+					warnings: record?.warnings.map((w) => w.rule) ?? []
+				});
 			}
 			const journal: { rel: string; prev: Buffer | null }[] = [];
 			for (const entry of entries) {
@@ -579,7 +620,47 @@ export class Mdwiki {
 	async history(page: unknown, limit = 50) {
 		const path = this.historyPage(page);
 		const revisions = await listRevisions(this.store, path);
-		return { path, total: revisions.length, revisions: revisions.slice(0, clamp(limit, 1, 500)) };
+		return { path, total: revisions.length, revisions: revisions.slice(0, clamp(limit, 1, 500)).map((r) => this.withActorName(r)) };
+	}
+
+	/** Revisions across all pages, newest first, filterable by time, actor, folder and page. */
+	async activity(since?: unknown, actor?: unknown, folder?: unknown, page?: unknown, limit = 50) {
+		const sinceDate = this.optionalDate(since, 'since');
+		const actorSlug = this.optionalText(actor, 'actor');
+		const pagePath = this.optionalPage(page, 'page');
+		const folderPath = this.optionalPage(folder, 'folder');
+		const result = await listActivity(this.store, {
+			since: sinceDate,
+			actor: actorSlug,
+			folder: folderPath,
+			page: pagePath,
+			limit: clamp(limit, 1, 500)
+		});
+		return { total: result.total, records: result.records.map((r) => ({ ...this.withActorName(r), path: r.path })) };
+	}
+
+	private withActorName<T extends Revision>(revision: T): T & { actor_name: string } {
+		const name = this.manifest?.rules.actors?.[revision.actor]?.name;
+		return { ...revision, actor_name: name ?? revision.actor };
+	}
+
+	private optionalText(value: unknown, field: string): string | undefined {
+		if (value === undefined || value === null || value === '') return undefined;
+		if (typeof value !== 'string') throw new MdwikiError(400, 'bad_query', `"${field}" must be a string`);
+		return value.trim();
+	}
+
+	private optionalPage(value: unknown, field: string): string | undefined {
+		const text = this.optionalText(value, field);
+		return text === undefined ? undefined : fileToPage(pageToFile(text));
+	}
+
+	private optionalDate(value: unknown, field: string): Date | undefined {
+		const text = this.optionalText(value, field);
+		if (text === undefined) return undefined;
+		const date = parseDateValue(text);
+		if (!date) throw new MdwikiError(400, 'bad_query', `"${field}" must be a date`);
+		return date;
 	}
 
 	/** Unified diff between one revision (hash or ISO time, default: the last one) and the page now. */
@@ -595,7 +676,7 @@ export class Mdwiki {
 		const result = unifiedDiff(saved.content, current ? current.data.toString('utf8') : '', `${path} @ ${revision.id}`, `${path} (current)`);
 		return {
 			path,
-			since: revision,
+			since: this.withActorName(revision),
 			current: { exists: current !== null, hash: current ? hashOf(current.data) : null },
 			diff: result.diff,
 			added: result.added,
@@ -609,8 +690,25 @@ export class Mdwiki {
 		return fileToPage(pageToFile(page));
 	}
 
-	private async recordRevision(page: string, data: Buffer, opts: { marker?: string; agent?: string }): Promise<void> {
-		await writeRevision(this.store, page, data, { keep: this.config.historyKeep, ...opts });
+	private async recordRevision(
+		page: string,
+		data: Buffer,
+		opts: { tool: RevisionTool; agent?: string; note?: string; marker?: string; next?: string; warnings?: string[] }
+	): Promise<void> {
+		const oldText = data.toString('utf8');
+		const stats = changeStats(oldText, opts.next ?? oldText);
+		const actor = opts.agent?.trim();
+		await writeRevision(this.store, page, data, {
+			keep: this.config.historyKeep,
+			actor: actor || 'unknown',
+			actorSource: (actor ? 'field' : 'unknown') as ActorSource,
+			tool: opts.tool,
+			bytesAdded: stats.bytesAdded,
+			bytesRemoved: stats.bytesRemoved,
+			warnings: opts.warnings ?? [],
+			note: opts.note ? opts.note.slice(0, 500) : undefined,
+			marker: opts.marker
+		});
 	}
 
 	private batchEntry(raw: unknown, index: number): { path: string; content: string; baseHash: string | undefined } {

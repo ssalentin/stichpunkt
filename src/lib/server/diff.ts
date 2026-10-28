@@ -76,6 +76,33 @@ function backtrack(trace: Int32Array[], a: string[], b: string[], d: number, off
 	return ops.reverse();
 }
 
+export interface ChangeStats {
+	added: number;
+	removed: number;
+	bytesAdded: number;
+	bytesRemoved: number;
+}
+
+/** Line and byte counts of a change, used for the revision record. */
+export function changeStats(oldText: string, newText: string): ChangeStats {
+	const a = splitLines(oldText);
+	const b = splitLines(newText);
+	const ops = a.length + b.length > MAX_TOTAL_LINES ? replaceAll(a, b) : myers(a, b);
+	const stats: ChangeStats = { added: 0, removed: 0, bytesAdded: 0, bytesRemoved: 0 };
+	for (const op of ops) {
+		// every stored line counts with its newline; the last line may lack one
+		const bytes = Buffer.byteLength(op.text, 'utf8') + 1;
+		if (op.type === '+') {
+			stats.added++;
+			stats.bytesAdded += bytes;
+		} else if (op.type === '-') {
+			stats.removed++;
+			stats.bytesRemoved += bytes;
+		}
+	}
+	return stats;
+}
+
 /** Unified diff with three lines of context. Labels appear in the `---`/`+++` header. */
 export function unifiedDiff(oldText: string, newText: string, oldLabel: string, newLabel: string, context = 3): DiffResult {
 	const a = splitLines(oldText);

@@ -25,6 +25,8 @@ export const manifestSchema = z.strictObject({
 		})
 		.optional(),
 	folders: z.record(z.string(), folder).optional(),
+	/** display names per actor slug; records keep only the slug */
+	actors: z.record(z.string(), z.strictObject({ name: z.string().min(1) })).optional(),
 	checks: z.array(z.enum(['secrets', 'links', 'frontmatter', 'owner', 'stand_age'])).optional()
 });
 
