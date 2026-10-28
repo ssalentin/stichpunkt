@@ -266,6 +266,21 @@ describe('check_manifest', () => {
 		}
 	});
 
+	it('accepts a folder that exists only as its root page, case-insensitively', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes', '# Notes\n');
+		await mdwiki.writePage('MANIFEST', '---\nmanifest: 1\nsummary: s\nfolders:\n  Notes: {}\n---\n');
+		expect(await mdwiki.checkManifest()).toEqual({ ok: true, issues: [] });
+		await mdwiki.writePage('MANIFEST', '---\nmanifest: 1\nsummary: s\nfolders:\n  notes: {}\n---\n');
+		expect(await mdwiki.checkManifest()).toEqual({ ok: true, issues: [] });
+	});
+
+	it('still reports a folder without any page', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', '---\nmanifest: 1\nsummary: s\nfolders:\n  Ghost: {}\n---\n');
+		expect(await mdwiki.checkManifest()).toEqual({ ok: false, issues: [{ path: 'folders.Ghost', message: 'Folder "Ghost" has no page' }] });
+	});
+
 	it('reports allowed tags without a tag.define, missing folders and colliding keys', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await write(
