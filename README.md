@@ -227,7 +227,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/validate` | `{path, content}` → `{warnings}`; checks a page against the manifest, writes nothing |
 | `POST /api/v1/pages/move` | `{from, to, dry_run?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings}` |
 | `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
-| `GET /api/v1/links?path=&include_working=` | `{dead, ambiguous, orphans, anchors, counts}` |
+| `GET /api/v1/links?path=&include_hidden=` | `{dead, ambiguous, orphans, anchors, counts}` |
 
 **MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
 
@@ -237,7 +237,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 
 - **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Contact]]`) keeps working and stays as written; `[[Notes/Contact]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
 - **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
-- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
+- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_hidden` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
 
 ## Agent manifest
 

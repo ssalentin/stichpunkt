@@ -93,10 +93,10 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		'check_links',
 		{
 			description:
-				'Read-only link audit: dead targets, ambiguous basenames, pages without incoming links (root pages are marked) and headings that do not exist. `path` limits the check to one page or folder; `include_working` also checks pages that are hidden from navigation.',
-			inputSchema: { path: z.string().optional(), include_working: z.boolean().optional() }
+				'Read-only link audit: dead targets, ambiguous basenames, pages without incoming links (root pages are marked) and headings that do not exist. `path` limits the check to one page or folder; `include_hidden` also checks pages that are hidden from navigation.',
+			inputSchema: { path: z.string().optional(), include_hidden: z.boolean().optional() }
 		},
-		({ path, include_working }) => run(() => mdwiki.checkLinks(path, include_working ?? false))
+		({ path, include_hidden }) => run(() => mdwiki.checkLinks(path, include_hidden ?? false))
 	);
 	server.registerTool(
 		'write_pages',

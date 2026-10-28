@@ -75,6 +75,7 @@ describe('move_page', () => {
 		await mdwiki.writePage('Notes/Item', 'Siehe [[Rolodex]].\n');
 		const res = await mdwiki.movePage('Notes/Rolodex', 'New/Rolodex');
 		expect(res.rewritten).toEqual([{ path: 'Notes/Item', links: 1 }]);
+		expect(res.unresolved).toEqual([]);
 		expect(await read(mdwiki, 'Notes/Item')).toBe('Siehe [[New/Rolodex]].\n');
 	});
 
@@ -168,7 +169,7 @@ describe('check_links', () => {
 		expect(res.orphans.map((o) => o.path)).not.toContain('Linked');
 	});
 
-	it('skips hidden Library pages unless include_working is set', async () => {
+	it('skips hidden Library pages unless include_hidden is set', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('Library/Werkstatt', 'Arbeitsnotiz [[Nirgends]]\n');
 		expect((await mdwiki.checkLinks('Library')).dead).toEqual([]);
