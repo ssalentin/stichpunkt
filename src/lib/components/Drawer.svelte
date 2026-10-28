@@ -66,7 +66,7 @@
 		const marker = !!(history.state as { mdwikiDrawer?: boolean } | null)?.mdwikiDrawer;
 		navigating = true;
 		onclose({ navigating: true });
-		void goto(url.pathname + url.search + url.hash, { replaceState: marker });
+		void goto(url.pathname + url.search + url.hash, { replace: marker });
 	}
 
 	/** cycle focus inside the dialog, so the page behind it stays unreachable */
