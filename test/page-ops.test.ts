@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
@@ -119,6 +121,36 @@ describe('move_page', () => {
 		expect(await read(mdwiki, 'B/Target')).toBe('occupied\n');
 	});
 
+	it('overwrites an existing target only with overwrite and reports the previous hash', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 'moved content\n');
+		await mdwiki.writePage('Notes/Target', 'old target\n');
+		const before = await mdwiki.readPage('Notes/Target');
+		const dry = await mdwiki.movePage('Notes/Source', 'Notes/Target', true, undefined, true);
+		expect(dry).toMatchObject({ moved: false, overwrite: true, previous_hash: before.hash, base_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(await read(mdwiki, 'Notes/Target')).toBe('old target\n');
+		const res = await mdwiki.movePage('Notes/Source', 'Notes/Target', false, undefined, true);
+		expect(res).toMatchObject({ moved: true, overwrite: true, previous_hash: before.hash });
+		expect(res.base_hash).toBe((await mdwiki.readPage('Notes/Target')).hash);
+		expect(await read(mdwiki, 'Notes/Target')).toBe('moved content\n');
+		expect(await exists(mdwiki, 'Notes/Source')).toBe(false);
+		const history = await mdwiki.history('Notes/Target');
+		expect(history.revisions[0].marker).toBe('overwritten by move from Notes/Source');
+	});
+
+	it('never touches _attachments or .history on a move', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 'v1\n');
+		await mdwiki.writePage('Notes/Source', 'v2\n');
+		await mdwiki.uploadAttachment('Notes/_attachments/pic.png', Buffer.from([137, 80, 78, 71]));
+		const root = mdwiki.store.root;
+		const historyFiles = fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'));
+		await mdwiki.movePage('Notes/Source', 'Archive/Source');
+		expect(fs.existsSync(path.join(root, 'Notes/_attachments/pic.png'))).toBe(true);
+		const after = fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'));
+		expect(after).toEqual(expect.arrayContaining(historyFiles));
+	});
+
 	it('is exposed as an MCP tool', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
@@ -235,10 +267,18 @@ describe('write_pages', () => {
 		});
 	});
 
-	it('dry_run validates conflicts but writes nothing', async () => {
+	it('dry_run returns the hash and the warnings per page and writes nothing', async () => {
 		const { mdwiki } = await makeMdwiki();
-		const res = await mdwiki.writePages([{ path: 'Batch/Dry', content: 'nur ein Plan\n' }], true);
-		expect(res).toMatchObject({ dry_run: true });
+		const res = await mdwiki.writePages([{ path: 'Batch/Dry', content: 'just a plan\n' }], true);
+		expect(res.dry_run).toBe(true);
+		expect(res.written[0]).toMatchObject({
+			path: 'Batch/Dry',
+			hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+			warnings: [],
+			actor: null,
+			owner: null,
+			owner_ok: true
+		});
 		expect(await exists(mdwiki, 'Batch/Dry')).toBe(false);
 	});
 

@@ -7,6 +7,7 @@ Agent-facing MCP tools and the matching REST routes. Page paths never carry `.md
 | `move_page` | `POST /api/v1/pages/move` | move or rename a page, rewrite links |
 | `write_pages` | `POST /api/v1/pages/batch` | write several pages atomically |
 | `check_links` | `GET /api/v1/links` | read-only link audit |
+| `check_manifest` | `GET /api/v1/manifest/check` | read-only manifest validation |
 | `history` | `GET /api/v1/history/<path>` | revision list |
 | `diff` | `GET /api/v1/diff/<path>` | unified diff against a revision |
 
@@ -31,7 +32,8 @@ POST /api/v1/pages/move   { "from": "Notes/Contact", "to": "Archive/Contact", "d
 - A link is rewritten only when it resolved to the old page before the move and would not resolve to the new page afterwards. Unique-basename links (`[[Contact]]`) keep working and stay untouched.
 - `#Heading`, `|alias` and `![[…]]` survive; nothing inside fenced or inline code is touched.
 - `unresolved` lists links that could refer to the page but cannot be rewritten safely (`ambiguous_basename`, `unresolvable`).
-- Existing destination → `409 target_exists`; same path → `400`; missing source → `404`. `dry_run` returns the plan without writing.
+- Existing destination → `409 target_exists`; same path → `400`; missing source → `404`; `dry_run` returns the plan without writing.
+- `overwrite: true` replaces an existing destination instead of failing. The overwritten page is kept in `.history` (marker `overwritten by move from <from>`); the response adds `overwrite`, `previous_hash` (content hash of the replaced page, `null` otherwise) and `base_hash` (hash of the moved content). `_attachments` folders and `.history` are never moved or deleted.
 
 ## write_pages
 
@@ -50,6 +52,7 @@ POST /api/v1/pages/batch   { "pages": [{ "path": "Notes/One", "content": "…", 
 - `MANIFEST` in the batch is only written when it validates.
 - Unexpected disk error → already written files are restored, newly created ones removed; `{ "error": "write_failed", "rolled_back": true, "path": "…" }`.
 - The index is rebuilt once.
+- `dry_run` returns `written` with the new `hash` and the `warnings` per page and writes nothing. Every entry (also in dry-run) carries `actor`, `owner` and `owner_ok`.
 
 ## check_links
 
@@ -69,6 +72,19 @@ GET /api/v1/links?path=Notes&include_working=true
 ```
 
 Read-only. `path` limits the audit to one page or folder; links from outside still count as incoming. `include_working` also checks pages hidden from navigation. `orphans` keeps root pages and marks them with `root: true`.
+
+## check_manifest
+
+```
+check_manifest()
+GET /api/v1/manifest/check
+```
+
+```jsonc
+{ "ok": false, "issues": [{ "path": "folders.Ghost", "message": "Folder \"Ghost\" has no page" }] }
+```
+
+Read-only. Checks the strict manifest schema, `allowed_tags` against the `tag.define` names in `CONFIG`, folders without any page, and folder keys that collide after normalisation. Full rules: [`manifest.md`](manifest.md).
 
 ## history
 
@@ -113,6 +129,10 @@ GET /api/v1/diff/<path>?since=<id|hash|ISO time>
 ```
 
 `since` takes a revision id, a hash (prefix) or a date value (newest revision at or before it); without it the last revision is used. Deleted pages diff against empty content (`current.exists: false`). Very large pages skip the real line diff and return every old line as removed and every new line as added (`truncated: true`).
+
+## Write responses
+
+`write_page`, `write_pages` and `append_to_page` return `actor`, `owner` and `owner_ok` next to `warnings`; in `write_pages` each `written` entry carries them. The values follow the configured folder owner and the optional actor (`agent` argument or `X-Agent` header).
 
 ## Revision storage
 

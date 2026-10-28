@@ -67,6 +67,15 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		({ path, content, agent }) => run(() => mdwiki.appendToPage(path, content, agent))
 	);
 	server.registerTool(
+		'check_manifest',
+		{
+			description:
+				'Read-only validation of MANIFEST.md against the current schema and the space: strict keys and enum values, `allowed_tags` without a `tag.define` in CONFIG, folders without a page, and folder keys that collide after normalisation. Returns {ok, issues:[{path, message}]}.',
+			inputSchema: {}
+		},
+		() => run(() => mdwiki.checkManifest())
+	);
+	server.registerTool(
 		'get_manifest',
 		{ description: 'The space\'s agent manifest (MANIFEST page): machine-readable rules plus prose. Returns {exists:false} when the space has none.', inputSchema: {} },
 		() => run(() => mdwiki.getManifest())
@@ -86,9 +95,15 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		{
 			description:
 				'Move or rename a page and rewrite the links that would stop resolving to it. Unique-basename links keep working and stay unchanged; `#Heading`, `|alias` and `![[...]]` survive. Fails with target_exists when the destination exists. dry_run reports the same plan without writing.',
-			inputSchema: { from: path, to: z.string().describe('New page name without ".md", e.g. "Archiv/SilverBullet"'), dry_run: z.boolean().optional() }
+			inputSchema: {
+				from: path,
+				to: z.string().describe('New page name without ".md", e.g. "Archive/SilverBullet"'),
+				dry_run: z.boolean().optional(),
+				agent,
+				overwrite: z.boolean().optional().describe('Replace an existing destination page (kept in .history) instead of failing with target_exists')
+			}
 		},
-		({ from, to, dry_run }) => run(() => mdwiki.movePage(from, to, dry_run ?? false))
+		({ from, to, dry_run, agent, overwrite }) => run(() => mdwiki.movePage(from, to, dry_run ?? false, agent, overwrite ?? false))
 	);
 	server.registerTool(
 		'check_links',

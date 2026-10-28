@@ -25,6 +25,7 @@ let batchRoute: typeof import('../src/routes/api/v1/pages/batch/+server');
 let linksRoute: typeof import('../src/routes/api/v1/links/+server');
 let historyRoute: typeof import('../src/routes/api/v1/history/[...path]/+server');
 let diffRoute: typeof import('../src/routes/api/v1/diff/[...path]/+server');
+let checkManifestRoute: typeof import('../src/routes/api/v1/manifest/check/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
@@ -48,6 +49,7 @@ beforeAll(async () => {
 	linksRoute = await import('../src/routes/api/v1/links/+server');
 	historyRoute = await import('../src/routes/api/v1/history/[...path]/+server');
 	diffRoute = await import('../src/routes/api/v1/diff/[...path]/+server');
+	checkManifestRoute = await import('../src/routes/api/v1/manifest/check/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
@@ -415,7 +417,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'check_links', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_manifest', 'history', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
+			['append_to_page', 'check_links', 'check_manifest', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_manifest', 'history', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});
 
@@ -517,7 +519,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(19);
+		expect(json.result.tools.length).toBe(20);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });
@@ -561,6 +563,16 @@ describe('REST: history and diff', () => {
 		expect(files.pages.map((p: { path: string }) => p.path)).not.toContain(rel);
 	});
 
+	it('validates the manifest over REST', async () => {
+		const manifest = '---\nmanifest: 1\nsummary: s\nfolders:\n  Ghost: {}\n---\n';
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: manifest }), { path: 'MANIFEST' });
+		const res = await call(checkManifestRoute.GET, req('GET', '/api/v1/manifest/check'));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.ok).toBe(false);
+		expect(body.issues).toEqual([{ path: 'folders.Ghost', message: expect.stringContaining('no page') }]);
+	});
+
 	it('takes the acting agent from X-Agent for the owner check', async () => {
 		const manifest = '---\nmanifest: 1\nsummary: s\nchecks: [owner]\nfolders:\n  Ops: { owner: "alice" }\n---\n';
 		expect((await call(pagesRoute.PUT, req('PUT', '/x', { content: manifest }), { path: 'MANIFEST' })).status).toBe(200);
@@ -582,6 +594,18 @@ describe('REST: page operations', () => {
 		expect(body).toMatchObject({ from: 'Ops/Quelle', to: 'Ops/Archiv/Quelle', moved: true, rewritten: [{ path: 'Ops/Text', links: 1 }] });
 		const text = await (await call(pagesRoute.GET, req('GET', '/x'), { path: 'Ops/Text' })).json();
 		expect(text.content).toBe('[[Ops/Archiv/Quelle]]\n');
+	});
+
+	it('overwrites a destination over REST when overwrite is true', async () => {
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'source\n' }), { path: 'Ops/Source' });
+		const old = await (await call(pagesRoute.PUT, req('PUT', '/x', { content: 'old\n' }), { path: 'Ops/Dest' })).json();
+		const res = await call(moveRoute.POST, req('POST', '/api/v1/pages/move', { from: 'Ops/Source', to: 'Ops/Dest', overwrite: true }));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toMatchObject({ moved: true, overwrite: true, previous_hash: old.hash });
+		expect(body.base_hash).toMatch(/^[0-9a-f]{64}$/);
+		const dest = await (await call(pagesRoute.GET, req('GET', '/x'), { path: 'Ops/Dest' })).json();
+		expect(dest.content).toBe('source\n');
 	});
 
 	it('answers 409 for an existing destination', async () => {

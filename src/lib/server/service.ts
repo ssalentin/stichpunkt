@@ -1,4 +1,4 @@
-import { checkPage, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
+import { checkPage, folderOwner, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, sameActor, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
@@ -212,11 +212,63 @@ export class Mdwiki {
 		};
 	}
 
+	/**
+	 * Validates MANIFEST.md against the current schema and the space: strict key/enum errors,
+	 * `allowed_tags` without a matching `tag.define` in CONFIG, folders without any page, and
+	 * folder keys that collide after path normalisation. Read-only.
+	 */
+	async checkManifest(): Promise<{ ok: boolean; issues: { path: string; message: string }[] }> {
+		const file = await this.store.read(pageToFile(MANIFEST_PAGE));
+		if (!file) return { ok: true, issues: [] };
+		const parsed = parseManifest(file.data.toString('utf8'));
+		if (!parsed.ok) {
+			return {
+				ok: false,
+				issues: parsed.issues.map((issue) => ({ path: issue.path.map(String).join('.') || '(root)', message: issue.message }))
+			};
+		}
+		const rules = parsed.value.rules;
+		const issues: { path: string; message: string }[] = [];
+		const pages = [...this.index.pages.keys()].map((page) => page.toLowerCase());
+		const folders = new Map<string, string>();
+		for (const key of Object.keys(rules.folders ?? {})) {
+			const normalized = key.trim().replace(/^\/+|\/+$/g, '').replace(/\/+/g, '/').toLowerCase();
+			if (!normalized) {
+				issues.push({ path: `folders.${key}`, message: 'Folder name is empty' });
+				continue;
+			}
+			const clash = folders.get(normalized);
+			if (clash !== undefined) {
+				issues.push({ path: `folders.${key}`, message: `Folder collides with "${clash}" after path normalisation` });
+			} else {
+				folders.set(normalized, key);
+			}
+			if (!pages.some((page) => page.startsWith(normalized + '/'))) {
+				issues.push({ path: `folders.${key}`, message: `Folder "${key}" has no page` });
+			}
+		}
+		const definedTags = new Set(this.index.categories().map((category) => category.tag.toLowerCase()));
+		for (const tag of rules.pages?.allowed_tags ?? []) {
+			const normalized = tag.trim().replace(/^#/, '').toLowerCase();
+			if (!normalized) issues.push({ path: 'pages.allowed_tags', message: 'Tag is empty' });
+			else if (!definedTags.has(normalized)) {
+				issues.push({ path: 'pages.allowed_tags', message: `Tag "#${normalized}" has no tag.define in CONFIG` });
+			}
+		}
+		return { ok: issues.length === 0, issues };
+	}
+
 	/** Same warnings as a write would return, without writing. */
 	validatePage(page: unknown, content: unknown, agent?: string): { warnings: PageWarning[] } {
 		if (typeof page !== 'string') throw new MdwikiError(400, 'bad_path', '"path" must be a string');
 		if (typeof content !== 'string') throw new MdwikiError(400, 'bad_content', '"content" must be a string');
 		return { warnings: this.warningsFor(this.pageName(page), content, undefined, agent) };
+	}
+
+	private actorInfo(page: string, agent?: string) {
+		const owner = folderOwner(this.manifest?.rules ?? null, page) ?? null;
+		const actor = agent?.trim() || null;
+		return { actor, owner, owner_ok: sameActor(agent, owner ?? undefined) };
 	}
 
 	private warningsFor(page: string, content: string, resolver?: PathResolver, agent?: string): PageWarning[] {
@@ -258,7 +310,7 @@ export class Mdwiki {
 			const info = await this.store.write(rel, data, 'page');
 			this.index.applyWrite(fileToPage(rel), content, info);
 			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(content, hashOf(data));
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), content, undefined, agent) };
+			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), content, undefined, agent), ...this.actorInfo(fileToPage(rel), agent) };
 		});
 	}
 
@@ -278,7 +330,7 @@ export class Mdwiki {
 			const info = await this.store.write(rel, data, 'page');
 			this.index.applyWrite(fileToPage(rel), next, info);
 			if (fileToPage(rel) === MANIFEST_PAGE) this.adoptManifest(next, hashOf(data));
-			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), next, undefined, agent) };
+			return { path: fileToPage(rel), hash: hashOf(data), created: cur === null, warnings: this.warningsFor(fileToPage(rel), next, undefined, agent), ...this.actorInfo(fileToPage(rel), agent) };
 		});
 	}
 
@@ -305,7 +357,7 @@ export class Mdwiki {
 	 * keep working (a unique basename, a relative target inside the folder) stay untouched;
 	 * the move itself runs as one transaction with the rewritten backlinks.
 	 */
-	async movePage(fromInput: unknown, toInput: unknown, dryRun = false, agent?: string) {
+	async movePage(fromInput: unknown, toInput: unknown, dryRun = false, agent?: string, overwrite = false) {
 		if (typeof fromInput !== 'string' || typeof toInput !== 'string') {
 			throw new MdwikiError(400, 'bad_path', '"from" and "to" must be strings');
 		}
@@ -318,10 +370,13 @@ export class Mdwiki {
 		return this.store.withLocks([...rels, fromRel, toRel], async () => {
 			const source = await this.store.read(fromRel);
 			if (!source) throw new MdwikiError(404, 'not_found', `Page "${from}" does not exist`);
-			if (await this.store.read(toRel)) throw new MdwikiError(409, 'target_exists', `Page "${to}" already exists`);
+			const target = await this.store.read(toRel);
+			if (target && !overwrite) throw new MdwikiError(409, 'target_exists', `Page "${to}" already exists`);
 			const raw = source.data.toString('utf8');
 			const pages: { path: string; content: string }[] = [];
 			for (const path of new Set([...this.index.pages.keys(), from])) {
+				// an overwritten target is replaced wholesale, so its old links do not matter
+				if (target && path === to) continue;
 				const file = path === from ? source : await this.store.read(pageToFile(path));
 				if (file) pages.push({ path, content: file.data.toString('utf8') });
 			}
@@ -334,12 +389,16 @@ export class Mdwiki {
 				to,
 				dry_run: dryRun,
 				moved: !dryRun,
+				overwrite: target !== null,
+				previous_hash: target ? hashOf(target.data) : null,
+				base_hash: hashOf(movedContent),
 				rewritten: plan.rewritten.map(({ path, links }) => ({ path, links })),
 				unresolved: plan.unresolved,
 				warnings
 			};
 			if (dryRun) return result;
 			const rewrittenPaths = new Set(plan.rewritten.map((r) => r.path));
+			if (target) await this.recordRevision(to, target.data, { agent, marker: `overwritten by move from ${from}` });
 			for (const page of pages) {
 				const data = Buffer.from(page.content, 'utf8');
 				if (page.path === from) await this.recordRevision(from, data, { agent, marker: `moved to ${to}` });
@@ -407,7 +466,8 @@ export class Mdwiki {
 			const written = entries.map((entry) => ({
 				path: entry.path,
 				hash: hashOf(entry.content),
-				warnings: this.warningsFor(entry.path, entry.content, resolver, agent)
+				warnings: this.warningsFor(entry.path, entry.content, resolver, agent),
+				...this.actorInfo(entry.path, agent)
 			}));
 			if (dryRun) return { dry_run: true, written };
 			for (const entry of entries) {

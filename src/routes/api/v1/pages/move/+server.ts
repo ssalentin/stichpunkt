@@ -4,7 +4,7 @@ import { agentOf, fail, readJson } from '#lib/server/http';
 import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
-/** Move or rename a page. Body: { from, to, dry_run? }. */
+/** Move or rename a page. Body: { from, to, dry_run?, overwrite? }. */
 export const POST: RequestHandler = async ({ request }) => {
 	try {
 		const mdwiki = await getMdwiki();
@@ -15,7 +15,10 @@ export const POST: RequestHandler = async ({ request }) => {
 		if (body.dry_run !== undefined && typeof body.dry_run !== 'boolean') {
 			throw new MdwikiError(400, 'bad_request', '"dry_run" must be a boolean');
 		}
-		return json(await mdwiki.movePage(body.from, body.to, body.dry_run ?? false, agentOf(request)));
+		if (body.overwrite !== undefined && typeof body.overwrite !== 'boolean') {
+			throw new MdwikiError(400, 'bad_request', '"overwrite" must be a boolean');
+		}
+		return json(await mdwiki.movePage(body.from, body.to, body.dry_run ?? false, agentOf(request), body.overwrite ?? false));
 	} catch (e) {
 		return fail(e);
 	}

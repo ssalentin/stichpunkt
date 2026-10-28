@@ -20,7 +20,8 @@ export const manifestSchema = z.strictObject({
 			allowed_tags: z.array(z.string()).optional(),
 			forbidden_prefixes: z.array(z.string()).optional(),
 			stand_field: z.string().min(1).optional(),
-			stand_max_age_days: z.number().int().positive().optional()
+			stand_max_age_days: z.number().int().positive().optional(),
+			require_agent: z.boolean().optional()
 		})
 		.optional(),
 	folders: z.record(z.string(), folder).optional(),
@@ -52,7 +53,8 @@ export interface PageWarning {
 		| 'owner_mismatch'
 		| 'stand_missing'
 		| 'stand_unparseable'
-		| 'stand_stale';
+		| 'stand_stale'
+		| 'missing_actor';
 	message: string;
 	line?: number;
 }
@@ -95,6 +97,18 @@ export interface CheckContext {
 	now?: Date;
 }
 
+/** Owner of the top-level folder of `page`, or undefined. Root and MANIFEST have none. */
+export function folderOwner(rules: ManifestRules | null, page: string): string | undefined {
+	if (!rules?.folders || page === MANIFEST_PAGE || !page.includes('/')) return undefined;
+	return rules.folders[page.slice(0, page.indexOf('/'))]?.owner;
+}
+
+/** Owner names compare trimmed and case-insensitively; an absent actor or owner never mismatches. */
+export function sameActor(a: string | undefined, b: string | undefined): boolean {
+	if (!a || !b) return true;
+	return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 /** Checks the full resulting content of `page` against the manifest rules. Never throws. */
 export function checkPage(rules: ManifestRules | null, page: string, content: string, ctx: CheckContext = {}): PageWarning[] {
 	if (!rules) return [];
@@ -102,6 +116,10 @@ export function checkPage(rules: ManifestRules | null, page: string, content: st
 	const lines = content.split(/\r?\n/);
 	const special = page === MANIFEST_PAGE;
 	const enabled = new Set(rules.checks ?? []);
+
+	if (rules.pages?.require_agent && !ctx.agent) {
+		out.push({ rule: 'missing_actor', message: 'actor unknown' });
+	}
 
 	const required = rules.pages?.required_frontmatter ?? [];
 	if (required.length && !special) {
@@ -155,8 +173,8 @@ export function checkPage(rules: ManifestRules | null, page: string, content: st
 	if (enabled.has('owner') && ctx.agent && rules.folders && !special && page.includes('/')) {
 		const top = page.slice(0, page.indexOf('/'));
 		const owner = rules.folders[top]?.owner;
-		if (owner && owner !== ctx.agent) {
-			out.push({ rule: 'owner_mismatch', message: `Folder "${top}" is owned by "${owner}", not by "${ctx.agent}"` });
+		if (owner && !sameActor(owner, ctx.agent)) {
+			out.push({ rule: 'owner_mismatch', message: `Folder "${top}" is owned by "${owner}", not by "${ctx.agent.trim()}"` });
 		}
 	}
 

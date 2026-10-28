@@ -160,6 +160,62 @@ describe('diff', () => {
 	});
 });
 
+describe('check_manifest', () => {
+	const write = (mdwiki: Awaited<ReturnType<typeof makeMdwiki>>['mdwiki'], body: string) => mdwiki.writePage('MANIFEST', body);
+
+	it('is ok without a manifest and for a manifest that fits the space', async () => {
+		const { mdwiki } = await makeMdwiki();
+		expect(await mdwiki.checkManifest()).toEqual({ ok: true, issues: [] });
+		await write(mdwiki, '---\nmanifest: 1\nsummary: s\nfolders:\n  Server: { owner: "alice" }\n  Notes: {}\npages:\n  allowed_tags: [server]\n---\n');
+		expect(await mdwiki.checkManifest()).toEqual({ ok: true, issues: [] });
+	});
+
+	it('reports schema errors with a path', async () => {
+		const { mdwiki, dir } = await makeMdwiki();
+		// an invalid manifest is rejected by the write path, so place it on disk
+		for (const content of ['---\nmanifest: 1\nsummary: s\nchecs: [secrets]\n---\n', '---\nmanifest: 1\nsummary: s\nchecks: [nope]\n---\n']) {
+			fs.writeFileSync(path.join(dir, 'MANIFEST.md'), content);
+			await mdwiki.index.refresh();
+			const bad = await mdwiki.checkManifest();
+			expect(bad.ok).toBe(false);
+			expect(bad.issues.length).toBeGreaterThan(0);
+			expect(typeof bad.issues[0].path).toBe('string');
+		}
+	});
+
+	it('reports allowed tags without a tag.define, missing folders and colliding keys', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await write(
+			mdwiki,
+			'---\nmanifest: 1\nsummary: s\npages:\n  allowed_tags: [server, nowhere]\nfolders:\n  Server: {}\n  Ghost: {}\n  Notes: {}\n  "notes/": {}\n---\n'
+		);
+		const res = await mdwiki.checkManifest();
+		expect(res.ok).toBe(false);
+		expect(res.issues).toEqual(
+			expect.arrayContaining([
+				{ path: 'pages.allowed_tags', message: expect.stringContaining('nowhere') },
+				{ path: 'folders.Ghost', message: expect.stringContaining('no page') },
+				{ path: 'folders.notes/', message: expect.stringContaining('collides') }
+			])
+		);
+	});
+
+	it('is read-only and exposed over MCP', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await write(mdwiki, '---\nmanifest: 1\nsummary: s\nfolders:\n  Ghost: {}\n---\n');
+		const before = await read(mdwiki, 'MANIFEST');
+		const [a, b] = InMemoryTransport.createLinkedPair();
+		await buildMcpServer(mdwiki).connect(b);
+		const client = new Client({ name: 'test', version: '1' });
+		await client.connect(a);
+		const result = await client.callTool({ name: 'check_manifest', arguments: {} });
+		const body = JSON.parse((result.content as { text: string }[])[0].text);
+		expect(body.ok).toBe(false);
+		expect(body.issues[0].path).toBe('folders.Ghost');
+		expect(await read(mdwiki, 'MANIFEST')).toBe(before);
+	});
+});
+
 describe('parseDateValue', () => {
 	it.each([
 		['2026-10-28', '2026-10-28T00:00:00.000Z'],
@@ -217,6 +273,28 @@ describe('manifest checks', () => {
 		expect(broken.warnings).toMatchObject([{ rule: 'stand_unparseable' }]);
 		const fresh = await mdwiki.validatePage('Notes/Age', `---\nupdated: ${new Date().toISOString()}\n---\n`);
 		expect(fresh.warnings).toEqual([]);
+	});
+
+	it('warns when an actor is required and none was given', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', manifest('', 'pages:\n  require_agent: true\n'));
+		expect((await mdwiki.writePage('Notes/Actor', 'x\n')).warnings).toMatchObject([{ rule: 'missing_actor', message: 'actor unknown' }]);
+		expect((await mdwiki.writePage('Notes/Actor', 'x\n', undefined, 'alice')).warnings).toEqual([]);
+	});
+
+	it('compares owner names trimmed and case-insensitively and reports them in the write response', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', manifest('owner', '', 'folders:\n  Notes: { owner: "Alice" }\n'));
+		const single = await mdwiki.writePage('Notes/Names', 'x\n', undefined, '  alice ');
+		expect(single.warnings).toEqual([]);
+		expect(single).toMatchObject({ actor: 'alice', owner: 'Alice', owner_ok: true });
+		const other = await mdwiki.appendToPage('Notes/Names', 'more', 'bob');
+		expect(other).toMatchObject({ actor: 'bob', owner: 'Alice', owner_ok: false });
+		expect(other.warnings).toMatchObject([{ rule: 'owner_mismatch' }]);
+		const batch = await mdwiki.writePages([{ path: 'Notes/Names', content: 'y\n' }], false, 'bob');
+		expect(batch.written[0]).toMatchObject({ actor: 'bob', owner: 'Alice', owner_ok: false });
+		const root = await mdwiki.writePage('Loose', 'x\n', undefined, 'bob');
+		expect(root).toMatchObject({ actor: 'bob', owner: null, owner_ok: true });
 	});
 
 	it('uses "updated" and 90 days as defaults without explicit fields', async () => {

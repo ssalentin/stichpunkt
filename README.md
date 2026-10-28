@@ -225,6 +225,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 | `GET /api/v1/manifest` | the [agent manifest](#agent-manifest): `{exists, path, hash, rules, prose}` or `{exists: false}` |
+| `GET /api/v1/manifest/check` | `{ok, issues}`; validates the manifest without writing |
 | `POST /api/v1/validate` | `{path, content}` → `{warnings}`; checks a page against the manifest, writes nothing |
 | `POST /api/v1/pages/move` | `{from, to, dry_run?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings}` |
 | `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
@@ -232,7 +233,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `GET /api/v1/history/<path>?limit=` | revision list, newest first |
 | `GET /api/v1/diff/<path>?since=` | unified diff against a revision (id, hash prefix or ISO time) |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `history`, `diff`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `check_manifest`, `history`, `diff`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
 
 See [`docs/tools.md`](docs/tools.md) for every page operation with signature and example.
 
@@ -242,6 +243,7 @@ See [`docs/tools.md`](docs/tools.md) for every page operation with signature and
 
 - **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Contact]]`) keeps working and stays as written; `[[Notes/Contact]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
 - **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
+- **check_manifest** validates the manifest against the schema and the space (unknown keys/enums, `allowed_tags` without `tag.define`, folders without pages, colliding folder keys) and returns `{ok, issues}`. Read-only.
 - **history** lists the revisions every MCP/REST write keeps under `.history/` (newest first, deletion and move markers included). **diff** returns a unified diff against a revision id, a hash prefix or a date. Direct file edits are not versioned. Details: [`docs/tools.md`](docs/tools.md).
 - **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
 
@@ -259,6 +261,7 @@ pages:                            # optional
   forbidden_prefixes: ["Sources:"] # lines starting like this (trimmed, outside code fences)
   stand_field: updated            # date key for `stand_age` (default: updated)
   stand_max_age_days: 90          # limit for `stand_age` (default: 90)
+  require_agent: false            # true: a write without an actor warns `missing_actor`
 folders:                          # optional; key = top-level folder
   Notes: { owner: "Team", description: "..." }   # owner, template, description: optional strings
 checks: [secrets, links]          # optional; see docs/manifest.md for all checks
