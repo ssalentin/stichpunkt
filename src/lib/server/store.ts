@@ -41,6 +41,16 @@ export class Store {
 		}
 	}
 
+	/**
+	 * Takes the locks for several files in sorted order, so two concurrent transactions can
+	 * never wait on each other in a cycle. The callback runs while all locks are held.
+	 */
+	async withLocks<T>(rels: string[], fn: () => Promise<T>): Promise<T> {
+		const sorted = [...new Set(rels)].sort();
+		const acquire = (i: number): Promise<T> => (i >= sorted.length ? fn() : this.withLock(sorted[i], () => acquire(i + 1)));
+		return acquire(0);
+	}
+
 	async stat(rel: string): Promise<FileInfo | null> {
 		const abs = await resolveInside(this.root, rel);
 		try {

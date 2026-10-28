@@ -238,6 +238,13 @@ describe('invalid MANIFEST at startup', () => {
 	});
 });
 
+describe('manifest checks', () => {
+	it('accepts the links check and still rejects unknown checks', () => {
+		expect(parseManifest('---\nmanifest: 1\nsummary: s\nchecks: [secrets, links]\n---\n').ok).toBe(true);
+		expect(parseManifest('---\nmanifest: 1\nsummary: s\nchecks: [foo]\n---\n').ok).toBe(false);
+	});
+});
+
 describe('checkPage / secret patterns', () => {
 	const rules = parseManifest('---\nmanifest: 1\nsummary: s\nchecks: [secrets]\n---\n');
 	if (!rules.ok) throw new Error('fixture');

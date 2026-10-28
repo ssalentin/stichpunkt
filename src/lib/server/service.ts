@@ -7,9 +7,10 @@ import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, 
 import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
 import { renderValue } from './expr-render';
 import { valueToJson, valueToText } from './expr-render';
+import { isImageTarget, lineAt, PathResolver, rewriteLinksForMove, scanLinks } from './links';
 import { assertAllowedExtension, fileToPage, normalizeRel, pageToFile } from './paths';
 import { SpaceIndex, type PageRec } from './space';
-import { hashOf, Store } from './store';
+import { hashOf, Store, type FileInfo } from './store';
 
 export interface PageView {
 	path: string;
@@ -216,8 +217,17 @@ export class Mdwiki {
 		return { warnings: this.warningsFor(this.pageName(page), content) };
 	}
 
-	private warningsFor(page: string, content: string): PageWarning[] {
-		return checkPage(this.manifest?.rules ?? null, page, content);
+	private warningsFor(page: string, content: string, resolver?: PathResolver): PageWarning[] {
+		const warnings = checkPage(this.manifest?.rules ?? null, page, content);
+		if (this.manifest?.rules.checks?.includes('links')) {
+			const resolve = resolver ?? new PathResolver(this.index.pages.keys());
+			for (const link of scanLinks(content)) {
+				if (!link.target || (link.embed && isImageTarget(link.target))) continue;
+				if (resolve.resolve(link.target, page)) continue;
+				warnings.push({ rule: 'dead_link', message: `Link target "${link.target}" does not exist`, line: lineAt(content, link.start) });
+			}
+		}
+		return warnings;
 	}
 
 	/** Rejects an invalid MANIFEST before it reaches the disk. */
@@ -281,6 +291,245 @@ export class Mdwiki {
 			return { path: fileToPage(rel), deleted: true };
 		});
 	}
+
+	// ---- page operations -----------------------------------------------------------------
+
+	/**
+	 * Moves a page and rewrites only those links that would stop resolving to it. Links that
+	 * keep working (a unique basename, a relative target inside the folder) stay untouched;
+	 * the move itself runs as one transaction with the rewritten backlinks.
+	 */
+	async movePage(fromInput: unknown, toInput: unknown, dryRun = false) {
+		if (typeof fromInput !== 'string' || typeof toInput !== 'string') {
+			throw new MdwikiError(400, 'bad_path', '"from" and "to" must be strings');
+		}
+		const from = fileToPage(pageToFile(fromInput));
+		const to = fileToPage(pageToFile(toInput));
+		if (from === to) throw new MdwikiError(400, 'bad_path', '"from" and "to" are the same page');
+		const fromRel = pageToFile(from);
+		const toRel = pageToFile(to);
+		const rels = [...this.index.pages.keys()].map(pageToFile);
+		return this.store.withLocks([...rels, fromRel, toRel], async () => {
+			const source = await this.store.read(fromRel);
+			if (!source) throw new MdwikiError(404, 'not_found', `Page "${from}" does not exist`);
+			if (await this.store.read(toRel)) throw new MdwikiError(409, 'target_exists', `Page "${to}" already exists`);
+			const raw = source.data.toString('utf8');
+			const pages: { path: string; content: string }[] = [];
+			for (const path of new Set([...this.index.pages.keys(), from])) {
+				const file = path === from ? source : await this.store.read(pageToFile(path));
+				if (file) pages.push({ path, content: file.data.toString('utf8') });
+			}
+			const plan = rewriteLinksForMove(pages, from, to);
+			const movedContent = plan.rewritten.find((r) => r.path === to)?.content ?? raw;
+			const after = new PathResolver([...this.index.pages.keys()].filter((p) => p !== from).concat(to));
+			const warnings = this.warningsFor(to, movedContent, after);
+			const result = {
+				from,
+				to,
+				dry_run: dryRun,
+				moved: !dryRun,
+				rewritten: plan.rewritten.map(({ path, links }) => ({ path, links })),
+				unresolved: plan.unresolved,
+				warnings
+			};
+			if (dryRun) return result;
+			const writes = [{ path: to, content: movedContent }, ...plan.rewritten.filter((r) => r.path !== to)];
+			const journal: { rel: string; prev: Buffer | null }[] = [];
+			try {
+				for (const write of writes) {
+					const rel = pageToFile(write.path);
+					const cur = await this.store.read(rel);
+					journal.push({ rel, prev: cur ? cur.data : null });
+					await this.store.write(rel, Buffer.from(write.content, 'utf8'), 'page');
+				}
+				journal.push({ rel: fromRel, prev: source.data });
+				if (!(await this.store.remove(fromRel))) throw new Error('the source page disappeared during the move');
+			} catch {
+				const rolledBack = await this.rollback(journal);
+				throw new MdwikiError(500, 'write_failed', `Moving "${from}" to "${to}" failed`, { rolled_back: rolledBack, path: to });
+			}
+			const changes: { path: string; content: string; info: FileInfo }[] = [];
+			for (const write of writes) {
+				const info = await this.store.stat(pageToFile(write.path));
+				if (info) changes.push({ path: write.path, content: write.content, info });
+			}
+			this.index.applyBatch(changes, [from]);
+			if (from === MANIFEST_PAGE || to === MANIFEST_PAGE) await this.reloadManifest();
+			return result;
+		});
+	}
+
+	/**
+	 * Writes several pages as one transaction: all locks in sorted order, every base hash
+	 * checked before the first write, one index rebuild. A conflict changes nothing; an
+	 * unexpected disk error rolls the already written files back.
+	 */
+	async writePages(input: unknown, dryRun = false) {
+		if (!Array.isArray(input)) throw new MdwikiError(400, 'bad_request', '"pages" must be an array');
+		const entries = input.map((raw, i) => this.batchEntry(raw, i));
+		const seen = new Set<string>();
+		for (const entry of entries) {
+			if (seen.has(entry.path)) throw new MdwikiError(400, 'duplicate_path', `Page "${entry.path}" appears more than once in the batch`);
+			seen.add(entry.path);
+			if (Buffer.byteLength(entry.content, 'utf8') > this.config.maxWriteBytes) {
+				throw new MdwikiError(413, 'too_large', `The content of "${entry.path}" exceeds the limit of ${this.config.maxWriteBytes} bytes`);
+			}
+		}
+		const rels = entries.map((e) => pageToFile(e.path));
+		return this.store.withLocks(rels, async () => {
+			const conflicts: { path: string; expected: string; actual: string | null }[] = [];
+			const previous = new Map<string, Buffer | null>();
+			for (const entry of entries) {
+				const file = await this.store.read(pageToFile(entry.path));
+				previous.set(entry.path, file ? file.data : null);
+				if (entry.baseHash === undefined) continue;
+				const actual = file ? hashOf(file.data) : null;
+				const matches = entry.baseHash === '' ? file === null : actual === entry.baseHash;
+				if (!matches) conflicts.push({ path: entry.path, expected: entry.baseHash, actual });
+			}
+			if (conflicts.length) {
+				throw new MdwikiError(409, 'conflict', 'One or more pages changed since they were read', { conflicts });
+			}
+			for (const entry of entries) this.assertManifestValid(entry.path, entry.content);
+			const resolver = new PathResolver([...this.index.pages.keys(), ...entries.map((e) => e.path)]);
+			const written = entries.map((entry) => ({
+				path: entry.path,
+				hash: hashOf(entry.content),
+				warnings: this.warningsFor(entry.path, entry.content, resolver)
+			}));
+			if (dryRun) return { dry_run: true, written };
+			const journal: { rel: string; prev: Buffer | null }[] = [];
+			for (const entry of entries) {
+				const rel = pageToFile(entry.path);
+				journal.push({ rel, prev: previous.get(entry.path) ?? null });
+				try {
+					await this.store.write(rel, Buffer.from(entry.content, 'utf8'), 'page');
+				} catch {
+					const rolledBack = await this.rollback(journal);
+					throw new MdwikiError(500, 'write_failed', `Writing "${entry.path}" failed`, { rolled_back: rolledBack, path: entry.path });
+				}
+			}
+			const changes: { path: string; content: string; info: FileInfo }[] = [];
+			for (const entry of entries) {
+				const info = await this.store.stat(pageToFile(entry.path));
+				if (info) changes.push({ path: entry.path, content: entry.content, info });
+			}
+			this.index.applyBatch(changes, []);
+			const manifest = entries.find((e) => e.path === MANIFEST_PAGE);
+			if (manifest) this.adoptManifest(manifest.content, hashOf(manifest.content));
+			return { dry_run: false, written };
+		});
+	}
+
+	/** Reads-only link audit: dead and ambiguous targets, anchors, orphans. */
+	async checkLinks(path?: unknown, includeHidden = false) {
+		let scope = '';
+		if (path !== undefined && path !== null && path !== '') {
+			if (typeof path !== 'string') throw new MdwikiError(400, 'bad_path', '"path" must be a string');
+			scope = fileToPage(pageToFile(path));
+		}
+		const all = [...this.index.pages.values()];
+		const resolver = new PathResolver(all.map((p) => p.path));
+		const files = await Promise.all(
+			all.map(async (page) => ({
+				page,
+				raw: (await this.store.read(pageToFile(page.path)))?.data.toString('utf8') ?? ''
+			}))
+		);
+		const visible = (p: { path: string; hidden: boolean }) =>
+			(includeHidden || !p.hidden) && (!scope || p.path === scope || p.path.startsWith(scope + '/'));
+		const dead: { path: string; line: number; target: string }[] = [];
+		const ambiguous: { path: string; target: string; candidates: string[] }[] = [];
+		const anchors: { path: string; target: string; heading: string }[] = [];
+		let linkCount = 0;
+		const inbound = new Map<string, Set<string>>();
+		for (const { page, raw } of files) {
+			if (!visible(page)) continue;
+			for (const link of scanLinks(raw)) {
+				if (!link.target || (link.embed && isImageTarget(link.target))) continue;
+				linkCount++;
+				const resolved = resolver.resolve(link.target, page.path);
+				const line = lineAt(raw, link.start);
+				if (!resolved) {
+					dead.push({ path: page.path, line, target: link.target });
+					const candidates = resolver.basenames(link.target);
+					if (candidates.length >= 2) ambiguous.push({ path: page.path, target: link.target, candidates });
+					continue;
+				}
+				if (link.heading) {
+					const target = this.index.get(resolved);
+					const slug = slugify(link.heading);
+					if (target && !target.headings.some((h) => h.slug === slug)) {
+						anchors.push({ path: page.path, target: link.target, heading: link.heading });
+					}
+				}
+			}
+		}
+		// links from outside the scope still count as incoming, otherwise a folder looks orphaned
+		const inboundScope = (p: { path: string; hidden: boolean }) => includeHidden || !p.hidden;
+		for (const { page, raw } of files) {
+			if (!inboundScope(page)) continue;
+			for (const link of scanLinks(raw)) {
+				if (!link.target || (link.embed && isImageTarget(link.target))) continue;
+				const resolved = resolver.resolve(link.target, page.path);
+				if (!resolved || resolved === page.path) continue;
+				let from = inbound.get(resolved);
+				if (!from) inbound.set(resolved, (from = new Set()));
+				from.add(page.path);
+			}
+		}
+		const orphans = files
+			.map((f) => f.page)
+			.filter((p) => visible(p) && (inbound.get(p.path)?.size ?? 0) === 0)
+			.map((p) => ({ path: p.path, root: !p.path.includes('/') }));
+		const byPath = (a: { path: string }, b: { path: string }) => a.path.localeCompare(b.path);
+		return {
+			dead: dead.sort(byPath),
+			ambiguous: ambiguous.sort(byPath),
+			orphans: orphans.sort(byPath),
+			anchors: anchors.sort(byPath),
+			counts: {
+				pages: files.filter((f) => visible(f.page)).length,
+				links: linkCount,
+				dead: dead.length,
+				ambiguous: ambiguous.length,
+				orphans: orphans.length,
+				anchors: anchors.length
+			}
+		};
+	}
+
+	private batchEntry(raw: unknown, index: number): { path: string; content: string; baseHash: string | undefined } {
+		if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+			throw new MdwikiError(400, 'bad_request', `pages[${index}] must be an object`);
+		}
+		const entry = raw as Record<string, unknown>;
+		if (typeof entry.path !== 'string') throw new MdwikiError(400, 'bad_path', `pages[${index}].path must be a string`);
+		if (typeof entry.content !== 'string') throw new MdwikiError(400, 'bad_content', `pages[${index}].content must be a string`);
+		if (entry.base_hash !== undefined && entry.base_hash !== null && typeof entry.base_hash !== 'string') {
+			throw new MdwikiError(400, 'bad_base_hash', `pages[${index}].base_hash must be a string`);
+		}
+		return {
+			path: fileToPage(pageToFile(entry.path)),
+			content: entry.content,
+			baseHash: (entry.base_hash ?? undefined) as string | undefined
+		};
+	}
+
+	/** Restores the journal in reverse order; returns false when at least one restore failed. */
+	private async rollback(journal: { rel: string; prev: Buffer | null }[]): Promise<boolean> {
+		let ok = true;
+		for (const step of [...journal].reverse()) {
+			try {
+				if (step.prev === null) await this.store.remove(step.rel);
+				else await this.store.write(step.rel, step.prev, 'page');
+			} catch {
+				ok = false;
+			}
+		}
+		return ok;
+	}
+
 
 	/** Stores any allowed file type (images, PDFs, ...). Markdown goes through the page path. */
 	async uploadAttachment(relPath: string, bytes: Buffer) {

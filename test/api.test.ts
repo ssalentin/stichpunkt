@@ -20,6 +20,9 @@ let listRoute: typeof import('../src/routes/api/v1/pages/+server');
 let attachRoute: typeof import('../src/routes/api/v1/attachments/[...path]/+server');
 let queryRoute: typeof import('../src/routes/api/v1/query/+server');
 let evalRoute: typeof import('../src/routes/api/v1/eval/+server');
+let moveRoute: typeof import('../src/routes/api/v1/pages/move/+server');
+let batchRoute: typeof import('../src/routes/api/v1/pages/batch/+server');
+let linksRoute: typeof import('../src/routes/api/v1/links/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
@@ -38,6 +41,9 @@ beforeAll(async () => {
 	attachRoute = await import('../src/routes/api/v1/attachments/[...path]/+server');
 	queryRoute = await import('../src/routes/api/v1/query/+server');
 	evalRoute = await import('../src/routes/api/v1/eval/+server');
+	moveRoute = await import('../src/routes/api/v1/pages/move/+server');
+	batchRoute = await import('../src/routes/api/v1/pages/batch/+server');
+	linksRoute = await import('../src/routes/api/v1/links/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
@@ -405,7 +411,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'delete_page', 'evaluate', 'get_backlinks', 'get_manifest', 'list_pages', 'list_tags', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page'].sort()
+			['append_to_page', 'check_links', 'delete_page', 'evaluate', 'get_backlinks', 'get_manifest', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});
 
@@ -507,8 +513,53 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(14);
+		expect(json.result.tools.length).toBe(17);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
+	});
+});
+
+describe('REST: page operations', () => {
+	it('moves a page and rewrites its backlinks', async () => {
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: '# Quelle\n' }), { path: 'Ops/Quelle' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: '[[Ops/Quelle]]\n' }), { path: 'Ops/Text' });
+		const res = await call(moveRoute.POST, req('POST', '/api/v1/pages/move', { from: 'Ops/Quelle', to: 'Ops/Archiv/Quelle' }));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body).toMatchObject({ from: 'Ops/Quelle', to: 'Ops/Archiv/Quelle', moved: true, rewritten: [{ path: 'Ops/Text', links: 1 }] });
+		const text = await (await call(pagesRoute.GET, req('GET', '/x'), { path: 'Ops/Text' })).json();
+		expect(text.content).toBe('[[Ops/Archiv/Quelle]]\n');
+	});
+
+	it('answers 409 for an existing destination', async () => {
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'a' }), { path: 'Ops/A' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'b' }), { path: 'Ops/B' });
+		const res = await call(moveRoute.POST, req('POST', '/api/v1/pages/move', { from: 'Ops/A', to: 'Ops/B' }));
+		expect(res.status).toBe(409);
+		expect((await res.json()).error).toBe('target_exists');
+	});
+
+	it('serves the link audit as JSON', async () => {
+		const res = await call(linksRoute.GET, req('GET', '/api/v1/links?path=Ops'));
+		expect(res.status).toBe(200);
+		const body = await res.json();
+		expect(body.counts.pages).toBeGreaterThan(0);
+		expect(Array.isArray(body.dead)).toBe(true);
+	});
+
+	it('writes a batch and refuses a stale base_hash without changes', async () => {
+		const ok = await call(batchRoute.POST, req('POST', '/api/v1/pages/batch', { pages: [{ path: 'Ops/BatchA', content: 'a\n' }, { path: 'Ops/BatchB', content: 'b\n' }] }));
+		expect(ok.status).toBe(200);
+		expect((await ok.json()).written.map((w: { path: string }) => w.path)).toEqual(['Ops/BatchA', 'Ops/BatchB']);
+		const conflict = await call(
+			batchRoute.POST,
+			req('POST', '/api/v1/pages/batch', { pages: [{ path: 'Ops/BatchA', content: 'neu\n', base_hash: 'deadbeef' }] })
+		);
+		expect(conflict.status).toBe(409);
+		const body = await conflict.json();
+		expect(body.error).toBe('conflict');
+		expect(body.conflicts[0].path).toBe('Ops/BatchA');
+		const after = await (await call(pagesRoute.GET, req('GET', '/x'), { path: 'Ops/BatchA' })).json();
+		expect(after.content).toBe('a\n');
 	});
 });
 
