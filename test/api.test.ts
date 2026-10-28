@@ -619,7 +619,7 @@ describe('REST: page operations', () => {
 		expect(res.status).toBe(200);
 		const body = await res.json();
 		expect(body).toMatchObject({ moved: true, overwrite: true, previous_hash: old.hash });
-		expect(body.base_hash).toMatch(/^[0-9a-f]{64}$/);
+		expect(body.hash).toMatch(/^[0-9a-f]{64}$/);
 		const dest = await (await call(pagesRoute.GET, req('GET', '/x'), { path: 'Ops/Dest' })).json();
 		expect(dest.content).toBe('source\n');
 	});

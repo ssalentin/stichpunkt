@@ -34,7 +34,7 @@ POST /api/v1/pages/move   { "from": "Notes/Contact", "to": "Archive/Contact", "d
 - `#Heading`, `|alias` and `![[…]]` survive; nothing inside fenced or inline code is touched.
 - `unresolved` lists links that could refer to the page but cannot be rewritten safely (`ambiguous_basename`, `unresolvable`).
 - Existing destination → `409 target_exists`; same path → `400`; missing source → `404`; `dry_run` returns the plan without writing.
-- `overwrite: true` replaces an existing destination instead of failing. The overwritten page is kept in `.history` (marker `overwritten by move from <from>`); the response adds `overwrite`, `previous_hash` (content hash of the replaced page, `null` otherwise) and `base_hash` (hash of the moved content). `_attachments` folders are never moved or deleted.
+- The response always carries `hash` (content hash of the new destination page). `overwrite: true` replaces an existing destination instead of failing: the response adds `overwrite` and `previous_hash` (content hash of the replaced page), and the overwritten page is kept in `.history` (marker `overwritten by move from <from>`). `_attachments` folders are never moved or deleted.
 - The page's history moves with it: the moved page keeps its version numbers instead of restarting at version 1, and the move itself is recorded with `tool: "move_page"` and the marker `moved from <from>`.
 
 ## write_pages

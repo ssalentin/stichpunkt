@@ -395,9 +395,8 @@ export class Mdwiki {
 				to,
 				dry_run: dryRun,
 				moved: !dryRun,
-				overwrite: target !== null,
-				previous_hash: target ? hashOf(target.data) : null,
-				base_hash: hashOf(movedContent),
+				hash: hashOf(movedContent),
+				...(target ? { overwrite: true, previous_hash: hashOf(target.data) } : {}),
 				rewritten: plan.rewritten.map(({ path, links }) => ({ path, links })),
 				unresolved: plan.unresolved,
 				warnings
@@ -539,7 +538,7 @@ export class Mdwiki {
 	}
 
 	/** Reads-only link audit: dead and ambiguous targets, anchors, orphans. */
-	async checkLinks(path?: unknown, includeWorking = false) {
+	async checkLinks(path?: unknown, includeHidden = false) {
 		let scope = '';
 		if (path !== undefined && path !== null && path !== '') {
 			if (typeof path !== 'string') throw new MdwikiError(400, 'bad_path', '"path" must be a string');
@@ -554,7 +553,7 @@ export class Mdwiki {
 			}))
 		);
 		const visible = (p: { path: string; hidden: boolean }) =>
-			(includeWorking || !p.hidden) && (!scope || p.path === scope || p.path.startsWith(scope + '/'));
+			(includeHidden || !p.hidden) && (!scope || p.path === scope || p.path.startsWith(scope + '/'));
 		const dead: { path: string; line: number; target: string }[] = [];
 		const ambiguous: { path: string; target: string; candidates: string[] }[] = [];
 		const anchors: { path: string; target: string; heading: string }[] = [];
@@ -583,7 +582,7 @@ export class Mdwiki {
 			}
 		}
 		// links from outside the scope still count as incoming, otherwise a folder looks orphaned
-		const inboundScope = (p: { path: string; hidden: boolean }) => includeWorking || !p.hidden;
+		const inboundScope = (p: { path: string; hidden: boolean }) => includeHidden || !p.hidden;
 		for (const { page, raw } of files) {
 			if (!inboundScope(page)) continue;
 			for (const link of scanLinks(raw)) {

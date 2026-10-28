@@ -227,9 +227,9 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `GET /api/v1/manifest` | the [agent manifest](#agent-manifest): `{exists, path, hash, rules, prose}` or `{exists: false}` |
 | `GET /api/v1/manifest/check` | `{ok, issues}`; validates the manifest without writing |
 | `POST /api/v1/validate` | `{path, content}` → `{warnings}`; checks a page against the manifest, writes nothing |
-| `POST /api/v1/pages/move` | `{from, to, dry_run?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings}` |
+| `POST /api/v1/pages/move` | `{from, to, dry_run?, overwrite?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings, hash, previous_hash?}` |
 | `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
-| `GET /api/v1/links?path=&include_working=` | `{dead, ambiguous, orphans, anchors, counts}` |
+| `GET /api/v1/links?path=&include_hidden=` | `{dead, ambiguous, orphans, anchors, counts}` |
 | `GET /api/v1/history/<path>?limit=` | revision list, newest first |
 | `GET /api/v1/diff/<path>?since=` | unified diff against a revision (id, hash prefix or ISO time) |
 | `GET /api/v1/activity?since=&actor=&folder=&page=&limit=` | revision activity across pages |
@@ -246,7 +246,7 @@ See [`docs/tools.md`](docs/tools.md) for every page operation with signature and
 - **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
 - **check_manifest** validates the manifest against the schema and the space (unknown keys/enums, `allowed_tags` without `tag.define`, folders without pages, colliding folder keys) and returns `{ok, issues}`. Read-only.
 - **history** lists the revisions every MCP/REST write keeps under `.history/` (newest first, deletion and move markers included; each record carries version, actor, `actor_source`, tool, byte counts, warning rules and an optional note). **activity** lists revisions across pages with filters. **diff** returns a unified diff against a revision id, a hash prefix or a date. Direct file edits are not versioned. Details: [`docs/tools.md`](docs/tools.md).
-- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
+- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_hidden` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
 
 ## Agent manifest
 

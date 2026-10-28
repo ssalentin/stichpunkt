@@ -40,7 +40,9 @@ describe('move_page', () => {
 		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
 		await mdwiki.writePage('Notes/Page', 'Siehe [[Notes/Rolodex]].\n');
 		const plan = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex', true);
-		expect(plan).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true, moved: false });
+		expect(plan).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true, moved: false, hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(plan).not.toHaveProperty('previous_hash');
+		expect(plan).not.toHaveProperty('overwrite');
 		expect(plan.rewritten).toEqual([{ path: 'Notes/Page', links: 1 }]);
 		expect(await exists(mdwiki, 'Notes/Rolodex')).toBe(true);
 		expect(await exists(mdwiki, 'Archive/Rolodex')).toBe(false);
@@ -77,6 +79,7 @@ describe('move_page', () => {
 		await mdwiki.writePage('Notes/Item', 'Siehe [[Rolodex]].\n');
 		const res = await mdwiki.movePage('Notes/Rolodex', 'New/Rolodex');
 		expect(res.rewritten).toEqual([{ path: 'Notes/Item', links: 1 }]);
+		expect(res.unresolved).toEqual([]);
 		expect(await read(mdwiki, 'Notes/Item')).toBe('Siehe [[New/Rolodex]].\n');
 	});
 
@@ -127,11 +130,11 @@ describe('move_page', () => {
 		await mdwiki.writePage('Notes/Target', 'old target\n');
 		const before = await mdwiki.readPage('Notes/Target');
 		const dry = await mdwiki.movePage('Notes/Source', 'Notes/Target', true, undefined, true);
-		expect(dry).toMatchObject({ moved: false, overwrite: true, previous_hash: before.hash, base_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(dry).toMatchObject({ moved: false, overwrite: true, previous_hash: before.hash, hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
 		expect(await read(mdwiki, 'Notes/Target')).toBe('old target\n');
 		const res = await mdwiki.movePage('Notes/Source', 'Notes/Target', false, undefined, true);
 		expect(res).toMatchObject({ moved: true, overwrite: true, previous_hash: before.hash });
-		expect(res.base_hash).toBe((await mdwiki.readPage('Notes/Target')).hash);
+		expect(res.hash).toBe((await mdwiki.readPage('Notes/Target')).hash);
 		expect(await read(mdwiki, 'Notes/Target')).toBe('moved content\n');
 		expect(await exists(mdwiki, 'Notes/Source')).toBe(false);
 		const history = await mdwiki.history('Notes/Target');
@@ -216,7 +219,7 @@ describe('check_links', () => {
 		expect(res.orphans.map((o) => o.path)).not.toContain('Linked');
 	});
 
-	it('skips hidden Library pages unless include_working is set', async () => {
+	it('skips hidden Library pages unless include_hidden is set', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('Library/Werkstatt', 'Arbeitsnotiz [[Nirgends]]\n');
 		expect((await mdwiki.checkLinks('Library')).dead).toEqual([]);
