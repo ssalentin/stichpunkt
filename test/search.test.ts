@@ -108,6 +108,18 @@ describe('ranking', () => {
 		expect(search(pages, 'arzt in:Setup').results).toEqual([]);
 	});
 
+	it('down-weights agent helper pages under Intern/ but keeps them findable', () => {
+		const pages = [
+			page('Intern/Ablage-Konvention', 'Arzt Arzt Arzt Termin Termin Termin Übersicht aller Kategorien', { mtimeMs: 5000 }),
+			page('Gesundheit', 'Beim Arzt einen Termin machen, der Arzt hilft.', { mtimeMs: 1000 })
+		];
+		expect(search(pages, 'Arzttermin').results[0].path).toBe('Gesundheit');
+		const plain = runSearch(buildIndex(pages), 'Ablage-Konvention');
+		expect(plain.results[0].path).toBe('Intern/Ablage-Konvention');
+		const internal = runSearch(buildIndex(pages), 'Arzttermin', { includeHidden: true });
+		expect(internal.results[0].path).toBe('Intern/Ablage-Konvention');
+	});
+
 	it('falls back to fuzzy titles on typos', () => {
 		expect(search(pages, 'Gesundhei').results[0].path).toBe('Gesundheit');
 	});
