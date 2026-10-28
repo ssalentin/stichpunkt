@@ -116,7 +116,12 @@
 		remember('stichpunkt.panel', panelOpen);
 	}
 
-	/** the drawer owns one throwaway history entry, so a back gesture closes it instead of leaving the page */
+	/**
+	 * The drawer owns one throwaway history entry, so a back gesture closes it instead of leaving the page.
+	 * Deliberately the raw history API: SvelteKit's pushState/goto would run a navigation, and afterNavigate
+	 * closes the drawer again. The copied state keeps SvelteKit's own entry shape, so its popstate handler
+	 * just re-resolves the same URL. Dev builds log a one-time history_api_conflict warning for this.
+	 */
 	function openDrawer() {
 		if (ui.drawer) return;
 		ui.drawer = true;
