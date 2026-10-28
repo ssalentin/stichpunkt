@@ -61,6 +61,9 @@ self.addEventListener('fetch', (event) => {
 		event.respondWith(
 			fetch(req)
 				.then((res) => {
+					// a 5xx during a restart is not a page: keep the last known copy instead of
+					// caching or showing the error page
+					if (res.status >= 500) throw new Error(`network error: ${res.status}`);
 					if (res.ok) event.waitUntil(put(PAGES, MAX_PAGES * 2, req, res.clone()));
 					return res;
 				})
