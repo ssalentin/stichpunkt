@@ -8,6 +8,7 @@
 	import Panel from '#lib/components/Panel.svelte';
 	import Switcher from '#lib/components/Switcher.svelte';
 	import Tree from '#lib/components/Tree.svelte';
+	import Drawer from '#lib/components/Drawer.svelte';
 	import { APP_VERSION, APP_COMMIT, shortCommit } from '#lib/version';
 	import { startLive } from '#lib/client/live';
 	import { ui, visit } from '#lib/ui.svelte';
@@ -21,15 +22,21 @@
 	let treeOpen = $state(true);
 	let panelOpen = $state(true);
 
-	// breadcrumbs: every folder links to its namespace listing
-	const crumbs = $derived.by(() => {
-		const p: string = page.data.name ?? page.data.prefix ?? '';
-		const parts = p ? p.split('/') : [];
-		return parts.map((name, i) => ({
-			name,
-			href: i === parts.length - 1 && page.data.kind === 'page' ? null : `/ns/${encodeURI(parts.slice(0, i + 1).join('/'))}`
-		}));
-	});
+	// breadcrumbs: every folder links to its namespace listing, the trailing crumb is the current page
+	const parts = $derived<string[]>((page.data.name ?? page.data.prefix ?? '').split('/').filter(Boolean));
+	const trail = $derived(parts.slice(0, -1).map((name, i) => ({ name, href: `/ns/${encodeURI(parts.slice(0, i + 1).join('/'))}` })));
+	const here = $derived(parts.at(-1) ?? '');
+	// tapping the current crumb opens the namespace it lives in
+	const hereHref = $derived(
+		page.data.kind === 'page'
+			? parts.length > 1
+				? `/ns/${encodeURI(parts.slice(0, -1).join('/'))}`
+				: '/'
+			: `/ns/${encodeURI(parts.join('/'))}`
+	);
+
+	const onSearch = $derived(page.url.pathname === '/search');
+	const onHome = $derived(page.url.pathname === '/');
 
 	onMount(() => {
 		try {
@@ -48,6 +55,7 @@
 	});
 	afterNavigate(() => {
 		ui.sheet = false;
+		ui.drawer = false;
 		if (page.data.kind === 'page' && page.data.name) visit(page.data.name);
 	});
 
@@ -108,6 +116,50 @@
 		remember('stichpunkt.panel', panelOpen);
 	}
 
+	/**
+	 * The drawer owns one throwaway history entry, so a back gesture closes it instead of leaving the page.
+	 * Deliberately the raw history API: SvelteKit's pushState/goto would run a navigation, and afterNavigate
+	 * closes the drawer again. The copied state keeps SvelteKit's own entry shape, so its popstate handler
+	 * just re-resolves the same URL. Dev builds log a one-time history_api_conflict warning for this.
+	 */
+	function openDrawer() {
+		if (ui.drawer) return;
+		ui.drawer = true;
+		try {
+			history.pushState({ ...history.state, mdwikiDrawer: true }, '', location.href);
+		} catch {
+			/* history is unavailable in some embedded browsers; the drawer still works */
+		}
+	}
+	function closeDrawer(opts: { navigating?: boolean } = {}) {
+		if (!ui.drawer) return;
+		ui.drawer = false;
+		// a navigation replaces the marker entry itself, so popping here would drop the previous page
+		if (opts.navigating) return;
+		// only pop our own entry: after a link navigation the state no longer carries the marker
+		if ((history.state as { mdwikiDrawer?: boolean } | null)?.mdwikiDrawer) {
+			try {
+				history.back();
+			} catch {
+				/* nothing to pop */
+			}
+		}
+	}
+	function onpop() {
+		if (ui.drawer) ui.drawer = false;
+	}
+
+	/** show a leading ellipsis on the breadcrumbs only when the trail is actually cut off */
+	function clipHint(node: HTMLElement) {
+		const trail = node.querySelector<HTMLElement>('.trail');
+		const update = () => node.classList.toggle('clipped', !!trail && trail.scrollWidth > trail.clientWidth + 1);
+		const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+		ro?.observe(node);
+		if (trail) ro?.observe(trail);
+		update();
+		return { destroy: () => ro?.disconnect() };
+	}
+
 	function typing(t: EventTarget | null) {
 		const el = t as HTMLElement | null;
 		return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName));
@@ -117,28 +169,25 @@
 		if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
 			e.preventDefault();
 			ui.switcher = ui.switcher ? null : 'switch';
-		} else if (e.key === 'Escape' && ui.sheet) ui.sheet = false;
-	}
-
-	function back() {
-		if (history.length > 1) history.back();
-		else location.assign('/');
+		} else if (e.key === 'Escape') {
+			if (ui.sheet) ui.sheet = false;
+			else if (ui.drawer) closeDrawer();
+		}
 	}
 </script>
 
-<svelte:window onkeydown={onkey} />
+<svelte:window onkeydown={onkey} onpopstate={onpop} />
 
 <div class="app" class:tree-closed={!treeOpen} class:panel-closed={!panelOpen}>
 	<header class="top">
 		<button class="icon col-toggle" onclick={toggleTree} aria-label="Toggle navigation column" aria-pressed={treeOpen} title="Toggle navigation column"><Icon name="sidebar-left" size={18} /></button>
 		<a class="brand" href="/" title={BRAND_TAGLINE}>{BRAND}<span class="brand-dot">.</span></a>
-		<nav class="crumbs" aria-label="Breadcrumbs">
-			{#each crumbs as c, i}
-				{#if i > 0}<span class="sep">/</span>{/if}
-				{#if c.href}<a href={c.href}>{c.name}</a>{:else}<span class="here">{c.name}</span>{/if}
-			{/each}
+		<nav class="crumbs" aria-label="Breadcrumbs" use:clipHint>
+			<span class="lead" aria-hidden="true">…</span>
+			<span class="trail">{#each trail as c}<a href={c.href}>{c.name}</a><span class="sep" aria-hidden="true">/</span>{/each}</span>
+			{#if here}<a class="here" href={hereHref} aria-current="page" title={parts.join('/')}>{here}</a>{/if}
 		</nav>
-		<button class="btn small search-btn" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)"><Icon name="search" size={14} /><span class="lbl">Search</span> <kbd>⌘K</kbd></button>
+		<button class="btn small search-btn" onclick={() => (ui.switcher = 'switch')} title="Quick switcher (Ctrl/Cmd-K)" aria-label="Search or jump to a page"><Icon name="search" size={14} /><span class="lbl">Search</span> <kbd>⌘K</kbd></button>
 		{#if pwa.canInstall}<button class="btn small install-btn" onclick={install} title="Install as app">Install</button>{/if}
 		<ThemeSwitch />
 		<a class="icon gh" href={BRAND_REPO} target="_blank" rel="noopener noreferrer" aria-label="Source code on GitHub" title="Source code on GitHub"><Icon name="github" size={18} /></a>
@@ -166,11 +215,15 @@
 	</aside>
 
 	<nav class="bar" aria-label="Primary">
-		<button onclick={back}><span>←</span>Back</button>
-		<a href="/" class="barlink"><span>⌂</span>Home</a>
-		<button onclick={() => (ui.switcher = 'switch')}><span>⌕</span>Search</button>
-		<button onclick={() => (ui.sheet = true)} disabled={!view}><span>⋯</span>More</button>
+		<button class="barbtn" class:active={ui.drawer} aria-expanded={ui.drawer} aria-controls="mobile-drawer" onclick={openDrawer}><Icon name="menu" size={20} /><span class="blabel">Browse</span></button>
+		<button class="barbtn" class:active={onSearch} onclick={() => (ui.switcher = 'switch')}><Icon name="search" size={20} /><span class="blabel">Search</span></button>
+		<a href="/" class="barlink" class:active={onHome} aria-current={onHome ? 'page' : undefined}><Icon name="home" size={20} /><span class="blabel">Home</span></a>
+		<button class="barbtn" class:active={ui.sheet} aria-expanded={ui.sheet} onclick={() => (ui.sheet = true)} disabled={!view}><Icon name="more" size={20} /><span class="blabel">More</span></button>
 	</nav>
+
+	{#if ui.drawer}
+		<Drawer tree={data.tree} recent={data.recent} tags={data.tags} {current} onclose={closeDrawer} />
+	{/if}
 
 	{#if ui.sheet && view}
 		<div class="overlay sheet-bg" role="presentation" onclick={() => (ui.sheet = false)}>
