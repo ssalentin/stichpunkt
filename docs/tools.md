@@ -17,13 +17,14 @@ Writes (`write_page`, `write_pages`, `append_to_page`, `delete_page`, `move_page
 ## move_page
 
 ```
-move_page(from, to, dry_run?)
+move_page(from, to, dry_run?, agent?, overwrite?, note?)
 POST /api/v1/pages/move   { "from": "Notes/Contact", "to": "Archive/Contact", "dry_run": false }
 ```
 
 ```jsonc
 {
   "from": "Notes/Contact", "to": "Archive/Contact", "dry_run": false, "moved": true,
+  "hash": "…",
   "rewritten": [{ "path": "Notes/Overview", "links": 2 }],
   "unresolved": [],
   "warnings": []
@@ -40,7 +41,7 @@ POST /api/v1/pages/move   { "from": "Notes/Contact", "to": "Archive/Contact", "d
 ## write_pages
 
 ```
-write_pages(pages, dry_run?, agent?)
+write_pages(pages, dry_run?, agent?, note?)
 POST /api/v1/pages/batch   { "pages": [{ "path": "Notes/One", "content": "…", "base_hash": "…" }] }
 ```
 
@@ -59,8 +60,8 @@ POST /api/v1/pages/batch   { "pages": [{ "path": "Notes/One", "content": "…", 
 ## check_links
 
 ```
-check_links(path?, include_working?)
-GET /api/v1/links?path=Notes&include_working=true
+check_links(path?, include_hidden?)
+GET /api/v1/links?path=Notes&include_hidden=true
 ```
 
 ```jsonc
@@ -73,7 +74,7 @@ GET /api/v1/links?path=Notes&include_working=true
 }
 ```
 
-Read-only. `path` limits the audit to one page or folder; links from outside still count as incoming. `include_working` also checks pages hidden from navigation. `orphans` keeps root pages and marks them with `root: true`.
+Read-only. `path` limits the audit to one page or folder; links from outside still count as incoming. `include_hidden` also checks pages hidden from navigation. `orphans` keeps root pages and marks them with `root: true`.
 
 ## check_manifest
 
