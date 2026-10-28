@@ -56,7 +56,8 @@ body {
 	margin: 0;
 	background: var(--bg);
 	color: var(--fg);
-	font: 16px/1.6 var(--sans);
+	/* rem, so the browser/Android system font size applies; 17px at the default root */
+	font: 1.0625rem/1.6 var(--sans);
 	overflow-x: hidden;
 	overscroll-behavior: none; /* no rubber-band wiggle on short pages */
 }
@@ -105,7 +106,7 @@ kbd { font-size: 0.7em; color: var(--muted); border: 1px solid var(--border); bo
 .crumbs .here { flex: none; color: var(--fg); text-decoration: none; }
 .crumbs .here:hover { color: var(--link); }
 .crumbs .lead { display: none; }
-.crumbs.clipped .lead { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 1.5rem; padding-right: 0.2rem; color: var(--muted); background: linear-gradient(to right, var(--bg) 60%, transparent); text-align: left; }
+.crumbs.clipped .lead { display: block; position: absolute; left: 0; top: 0; bottom: 0; width: 1.7rem; padding-right: 0.2rem; color: var(--muted); background: linear-gradient(to right, var(--bg) 78%, transparent); text-align: left; }
 .top .icon.col-toggle { display: none; } /* only shown where its column exists (see media queries) */
 .top .btn:not(.primary) kbd { display: none; }
 .top .icon {
@@ -167,8 +168,10 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 	.top .theme-switch, .top .gh { display: none; } /* moved into the drawer */
 	.top .search-btn { min-width: 40px; min-height: 40px; justify-content: center; padding: 0.15rem; }
 	.crumbs { font-size: 0.8rem; justify-content: flex-end; }
-	.crumbs .here { flex: 0 1 auto; min-width: 0; max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
+	.crumbs .here { flex: 0 1 auto; min-width: 3rem; max-width: 62%; overflow: hidden; text-overflow: ellipsis; }
 	.crumbs.clipped .lead { display: flex; align-items: center; }
+	.crumbs .trail { flex: 0 0 auto; }
+	.crumbs.clipped .trail { margin-left: 1.7rem; }
 	main { padding: 0.9rem 0.9rem 2.5rem; }
 	.main-inner, .page, .md { min-width: 0; }
 	.md { overflow-wrap: break-word; } /* not `anywhere`: it would collapse table columns */
@@ -333,7 +336,7 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .page { max-width: 72ch; margin: 0 auto; }
 .md > :first-child { margin-top: 0; }
 .md h1, .md h2, .md h3 { margin-top: 1.8em; scroll-margin-top: 4rem; }
-.md h1 { font-size: 1.6rem; }
+.md h1, .page h1 { font-size: 1.6rem; overflow-wrap: anywhere; }
 .md h2 { font-size: 1.3rem; border-bottom: 1px solid var(--border); padding-bottom: 0.2em; }
 .md h3 { font-size: 1.1rem; }
 .md h1, .md h2, .md h3, .md h4 { color: var(--fg); }
@@ -444,7 +447,7 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: va
 .chiprow { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .count-note { font-size: 0.8rem; letter-spacing: 0; text-transform: none; }
 @media (max-width: 899px) {
-	.searchbar .searchbox { font-size: 16px; }
+	.searchbar .searchbox { font-size: 1.0625rem; }
 	.search-clear { width: 44px; height: 44px; }
 	.suggest, .facet, .chipchip { min-height: 44px; padding: 0.55rem 0.85rem; }
 	.hit { padding: 0.9rem 1rem; }
@@ -764,3 +767,59 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 .live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
 .live.on .live-dot { background: var(--hl-string); }
 .toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+
+/* ---- mobile type scale --------------------------------------------------------------
+   Everything here is in rem, so a bigger system font size on the phone scales it.
+   Desktop (>=900px) keeps 1rem body text and the existing component sizes.            */
+@media (max-width: 899px) {
+	.top { font-size: 0.90625rem; } /* 14.5 */
+	.brand { font-size: 1rem; }
+	.crumbs { font-size: 0.875rem; } /* 14 */
+	main { padding: 1rem 1.125rem 3rem; } /* 18px horizontal */
+	.md p, .md li { font-size: 1.0625rem; line-height: 1.62; } /* 17 */
+	.md p { margin: 0 0 1.15em; }
+	.md h1, .page h1 { font-size: 1.8125rem; } /* 29 */
+	.md h2 { font-size: 1.4375rem; } /* 23 */
+	.md h3 { font-size: 1.25rem; } /* 20 */
+	.md h4 { font-size: 1.0625rem; }
+	.md td, .md th { font-size: 0.96875rem; } /* 15.5 */
+	.md code { font-size: 0.9375rem; } /* 15 */
+	.md pre { font-size: 0.9375rem; line-height: 1.55; }
+	.md blockquote { font-size: 1.0625rem; }
+	.bar .blabel { font-size: 0.75rem; } /* 12 */
+	.build { font-size: 0.75rem; } /* 12 */
+	.tag { font-size: 0.875rem; } /* 14 */
+	.hit-folder { font-size: 0.8125rem; } /* 13 */
+	.hit-snippet { font-size: 0.96875rem; } /* 15.5 */
+	.count, .facet, .suggest, .chipchip { font-size: 0.84375rem; } /* 13.5 */
+	.count { letter-spacing: 0.04em; }
+	.footnotes { font-size: 0.96875rem; }
+	.footnote-ref { font-size: 0.75em; }
+	.searchbar .searchbox { font-size: 1.0625rem; }
+	.search-history h2, .search-tags h2, .recent-block h2, .home-panel h2 { font-size: 0.8125rem; }
+	.props, .props-panel { font-size: 0.875rem; }
+	.chip, .chip-block .chip-meta { font-size: 0.8125rem; }
+	.wg { font-size: 0.90625rem; }
+	.callout-title, .callout-body { font-size: 0.9375rem; }
+	.facet-key, .suggest-key { font-size: 0.75rem; }
+	.hit-section { font-size: 0.875rem; }
+	.hit-name { font-size: 1.125rem; }
+	.drawer { font-size: 1rem; }
+	.sheet { font-size: 0.96875rem; }
+
+	/* horizontal scroll hint: fades at the edges only while the table overflows */
+	.table-wrap {
+		background:
+			linear-gradient(to right, var(--bg) 40%, transparent) left center / 2.25rem 100% no-repeat local,
+			linear-gradient(to left, var(--bg) 40%, transparent) right center / 2.25rem 100% no-repeat local,
+			radial-gradient(farthest-side at 0 50%, color-mix(in srgb, var(--fg) 30%, transparent), transparent) left center / 1.1rem 100% no-repeat scroll,
+			radial-gradient(farthest-side at 100% 50%, color-mix(in srgb, var(--fg) 30%, transparent), transparent) right center / 1.1rem 100% no-repeat scroll;
+		padding-bottom: 0.15rem;
+	}
+	.md table { margin: 0; }
+}
+
+@media (min-width: 900px) {
+	/* the desktop layout keeps today's 16px base; the rem body only lifts phones */
+	body { font-size: 1rem; }
+}
