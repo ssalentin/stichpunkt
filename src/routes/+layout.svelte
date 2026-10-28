@@ -152,7 +152,12 @@
 	/** show a leading ellipsis on the breadcrumbs only when the trail is actually cut off */
 	function clipHint(node: HTMLElement) {
 		const trail = node.querySelector<HTMLElement>('.trail');
-		const update = () => node.classList.toggle('clipped', !!trail && trail.scrollWidth > trail.clientWidth + 1);
+		// content aligned to the right overflows to the left, which scrollWidth does not report;
+		// sum the children instead
+		const update = () => {
+			const width = trail ? [...trail.children].reduce((n, el) => n + (el as HTMLElement).offsetWidth, 0) : 0;
+			node.classList.toggle('clipped', !!trail && width > trail.clientWidth + 1);
+		};
 		const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
 		ro?.observe(node);
 		if (trail) ro?.observe(trail);
