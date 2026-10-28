@@ -143,6 +143,29 @@ describe('move_page', () => {
 		);
 	});
 
+	it('records no history when a move rolls back', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Moved', 'v1\n');
+		await mdwiki.writePage('Notes/Moved', 'v2\n');
+		await mdwiki.writePage('Notes/Link', '[[Notes/Moved]]\n');
+		const store = mdwiki.store as unknown as { write: (...args: unknown[]) => Promise<unknown> };
+		const original = store.write.bind(mdwiki.store);
+		store.write = async (...args: unknown[]) => {
+			if (String(args[0]) === 'Archive/Moved.md') throw new Error('disk full');
+			return original(...args);
+		};
+		try {
+			await expect(mdwiki.movePage('Notes/Moved', 'Archive/Moved')).rejects.toMatchObject({ status: 500, code: 'write_failed' });
+		} finally {
+			store.write = original;
+		}
+		expect(await read(mdwiki, 'Notes/Moved')).toBe('v2\n');
+		expect(await exists(mdwiki, 'Archive/Moved')).toBe(false);
+		expect((await mdwiki.history('Notes/Moved')).total).toBe(1);
+		expect((await mdwiki.history('Archive/Moved')).total).toBe(0);
+		expect((await mdwiki.history('Notes/Link')).total).toBe(0);
+	});
+
 	it('merges both histories on an overwrite move without duplicate versions', async () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('Notes/Source', 's0\n');

@@ -404,6 +404,30 @@ export class Mdwiki {
 			if (dryRun) return result;
 			const rewritten = new Map(plan.rewritten.map((r) => [r.path, r.content]));
 			const ruleNames = warnings.map((w) => w.rule);
+			const writes = [{ path: to, content: movedContent }, ...plan.rewritten.filter((r) => r.path !== to)];
+			const journal: { rel: string; prev: Buffer | null }[] = [];
+			try {
+				for (const write of writes) {
+					const rel = pageToFile(write.path);
+					const cur = await this.store.read(rel);
+					journal.push({ rel, prev: cur ? cur.data : null });
+					await this.store.write(rel, Buffer.from(write.content, 'utf8'), 'page');
+				}
+				journal.push({ rel: fromRel, prev: source.data });
+				if (!(await this.store.remove(fromRel))) throw new Error('the source page disappeared during the move');
+			} catch {
+				const rolledBack = await this.rollback(journal);
+				throw new MdwikiError(500, 'write_failed', `Moving "${from}" to "${to}" failed`, { rolled_back: rolledBack, path: to });
+			}
+			const changes: { path: string; content: string; info: FileInfo }[] = [];
+			for (const write of writes) {
+				const info = await this.store.stat(pageToFile(write.path));
+				if (info) changes.push({ path: write.path, content: write.content, info });
+			}
+			this.index.applyBatch(changes, [from]);
+			if (from === MANIFEST_PAGE || to === MANIFEST_PAGE) await this.reloadManifest();
+			// Revisions only after every file write succeeded, so a rolled-back move leaves no
+			// history behind. The overwrite record comes first so moveHistory offsets after it.
 			if (target) {
 				await this.recordRevision(to, target.data, {
 					tool: 'move_page',
@@ -436,28 +460,6 @@ export class Mdwiki {
 					warnings: this.warningsFor(page.path, nextContent, after, agent).map((w) => w.rule)
 				});
 			}
-			const writes = [{ path: to, content: movedContent }, ...plan.rewritten.filter((r) => r.path !== to)];
-			const journal: { rel: string; prev: Buffer | null }[] = [];
-			try {
-				for (const write of writes) {
-					const rel = pageToFile(write.path);
-					const cur = await this.store.read(rel);
-					journal.push({ rel, prev: cur ? cur.data : null });
-					await this.store.write(rel, Buffer.from(write.content, 'utf8'), 'page');
-				}
-				journal.push({ rel: fromRel, prev: source.data });
-				if (!(await this.store.remove(fromRel))) throw new Error('the source page disappeared during the move');
-			} catch {
-				const rolledBack = await this.rollback(journal);
-				throw new MdwikiError(500, 'write_failed', `Moving "${from}" to "${to}" failed`, { rolled_back: rolledBack, path: to });
-			}
-			const changes: { path: string; content: string; info: FileInfo }[] = [];
-			for (const write of writes) {
-				const info = await this.store.stat(pageToFile(write.path));
-				if (info) changes.push({ path: write.path, content: write.content, info });
-			}
-			this.index.applyBatch(changes, [from]);
-			if (from === MANIFEST_PAGE || to === MANIFEST_PAGE) await this.reloadManifest();
 			return result;
 		});
 	}

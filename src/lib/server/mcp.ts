@@ -134,7 +134,7 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		'history',
 		{
 			description:
-				'Revision list of a page, newest first: {id, hash, at, size, marker?, agent?}. Revisions are written by every MCP/REST write; direct file edits are not recorded. Read only.',
+				'Revision list of a page, newest first: {id, hash, version, at, size, actor, actor_source, actor_name, tool, bytes_added, bytes_removed, warnings, note?, marker?}. Revisions are written by every MCP/REST write; direct file edits are not recorded. Read only.',
 			inputSchema: { path, limit: z.number().int().optional() }
 		},
 		({ path, limit }) => run(() => mdwiki.history(path, limit ?? 50))
