@@ -649,11 +649,40 @@ export function createMarkdown() {
 		return `<input type="checkbox" class="task" data-line="${line}" disabled${checked ? ' checked' : ''}> `;
 	};
 
-	r.table_open = () => '<div class="table-wrap"><table>\n';
+	// Tables with three or more columns get their own class: on phones they scroll sideways
+	// with readable columns, while two-column key/value tables should keep fitting the width.
+	md.core.ruler.after('inline', 'table_columns', (state) => {
+		const tokens = state.tokens;
+		for (let i = 0; i < tokens.length; i++) {
+			if (tokens[i].type !== 'table_open') continue;
+			let columns = 0;
+			for (let j = i + 1; j < tokens.length && tokens[j].type !== 'thead_close'; j++) {
+				if (tokens[j].type === 'th_open') columns++;
+			}
+			if (columns >= 3) tokens[i].attrSet('class', 'wide');
+		}
+	});
+
+	r.table_open = (tokens, idx) => {
+		const cls = tokens[idx].attrGet('class');
+		return `<div class="table-wrap"><table${cls ? ` class="${cls}"` : ''}>\n`;
+	};
 	r.table_close = () => '</table></div>\n';
+	// numbers and dates stay on one line on phones, prose cells keep wrapping
+	r.td_open = (tokens, idx, opts, env, self) => {
+		const cell = tokens[idx + 1];
+		const text = cell?.type === 'inline' ? cell.content.trim() : '';
+		if (!text) return self.renderToken(tokens, idx, opts);
+		if (NUMERIC_CELL.test(text)) tokens[idx].attrSet('class', 'num');
+		else if (text.length > 24) tokens[idx].attrSet('class', 'long');
+		return self.renderToken(tokens, idx, opts);
+	};
 
 	return md;
 }
+
+/** Cells that hold only numbers, dates, amounts or IDs: safe to keep on one line. */
+const NUMERIC_CELL = /^[\d][\d\s.,:;/\u2013\u2014-]{0,23}(?:€|EUR|%)?$/;
 
 function plainInline(tok: Token | undefined): string {
 	if (!tok?.children) return tok?.content ?? '';
