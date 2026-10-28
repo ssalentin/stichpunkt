@@ -111,6 +111,41 @@ export class Store {
 		}
 	}
 
+	/** All files below `relDir`, recursively, dot entries excluded; rel paths from the space root. */
+	async listTree(relDir: string): Promise<string[]> {
+		const abs = await resolveInside(this.root, relDir);
+		const root = await resolveInside(this.root, '');
+		const out: string[] = [];
+		const walk = async (dir: string) => {
+			let entries;
+			try {
+				entries = await fs.readdir(dir, { withFileTypes: true });
+			} catch (e) {
+				if ((e as NodeJS.ErrnoException).code === 'ENOENT') return;
+				throw e;
+			}
+			for (const entry of entries) {
+				if (entry.name.startsWith('.')) continue;
+				const child = path.join(dir, entry.name);
+				if (entry.isDirectory()) await walk(child);
+				else if (entry.isFile()) out.push(path.relative(root, child).split(path.sep).join('/'));
+			}
+		};
+		await walk(abs);
+		return out;
+	}
+
+	/** Entries of one directory inside the space (dot entries excluded); [] when it does not exist. */
+	async list(relDir: string): Promise<string[]> {
+		const abs = await resolveInside(this.root, relDir);
+		try {
+			return (await fs.readdir(abs)).filter((name) => !name.startsWith('.'));
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+			throw e;
+		}
+	}
+
 	/** Lists markdown files, skipping dot entries, directory symlinks and anything that resolves outside the root. */
 	async scan(): Promise<FileInfo[]> {
 		const realRoot = await fs.realpath(this.root);

@@ -6,11 +6,19 @@ export interface MdwikiConfig {
 	pollInterval: number;
 	maxWriteBytes: number;
 	maxUploadBytes: number;
+	/** revisions kept per page under `.history/`; 0 keeps every revision */
+	historyKeep: number;
 }
 
 function int(value: string | undefined, fallback: number): number {
 	const n = Number.parseInt(value ?? '', 10);
 	return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function nonNegativeInt(value: string | undefined, fallback: number): number {
+	if (value === undefined || value.trim() === '') return fallback;
+	const n = Number.parseInt(value, 10);
+	return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
 function nonEmptyDir(dir: string): boolean {
@@ -28,6 +36,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): MdwikiConfig {
 		spaceDir: !nonEmptyDir(configuredSpace) && nonEmptyDir(fallbackSpace) ? fallbackSpace : configuredSpace,
 		pollInterval: int(env.POLL_INTERVAL, 10_000),
 		maxWriteBytes: int(env.MAX_WRITE_BYTES, 1024 * 1024),
-		maxUploadBytes: int(env.MAX_UPLOAD_BYTES, 20 * 1024 * 1024)
+		maxUploadBytes: int(env.MAX_UPLOAD_BYTES, 20 * 1024 * 1024),
+		historyKeep: nonNegativeInt(env.HISTORY_KEEP, 50)
 	};
 }

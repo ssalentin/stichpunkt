@@ -35,6 +35,8 @@ async function run(fn: () => unknown | Promise<unknown>): Promise<ToolResult> {
 export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	const server = new McpServer({ name: BRAND, version: mcpVersion() }, { instructions: mdwiki.manifestInstructions() ?? undefined });
 	const path = z.string().describe('Page name without ".md", e.g. "Server/SilverBullet"');
+	const agent = z.string().optional().describe('Optional actor name; the owner and stand checks use it to compare the folder owner');
+	const note = z.string().optional().describe('Optional note for the revision record (stored up to 500 characters)');
 
 	server.registerTool(
 		'search',
@@ -56,14 +58,23 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		{
 			description:
 				'Create or overwrite a page. With base_hash the write fails with a conflict if the page changed meanwhile; use "" to require that the page does not exist yet. The response carries `warnings` (rule violations from the space MANIFEST, empty when everything fits); the write itself is never blocked by them.',
-			inputSchema: { path, content: z.string(), base_hash: z.string().optional() }
+			inputSchema: { path, content: z.string(), base_hash: z.string().optional(), agent, note }
 		},
-		({ path, content, base_hash }) => run(() => mdwiki.writePage(path, content, base_hash))
+		({ path, content, base_hash, agent, note }) => run(() => mdwiki.writePage(path, content, base_hash, agent, note))
 	);
 	server.registerTool(
 		'append_to_page',
-		{ description: 'Append text to a page (creates it when missing). The response carries `warnings` for the resulting page, like write_page.', inputSchema: { path, content: z.string() } },
-		({ path, content }) => run(() => mdwiki.appendToPage(path, content))
+		{ description: 'Append text to a page (creates it when missing). The response carries `warnings` for the resulting page, like write_page.', inputSchema: { path, content: z.string(), agent, note } },
+		({ path, content, agent, note }) => run(() => mdwiki.appendToPage(path, content, agent, note))
+	);
+	server.registerTool(
+		'check_manifest',
+		{
+			description:
+				'Read-only validation of MANIFEST.md against the current schema and the space: strict keys and enum values, `allowed_tags` without a `tag.define` in CONFIG, folders without a page, and folder keys that collide after normalisation. Returns {ok, issues:[{path, message}]}.',
+			inputSchema: {}
+		},
+		() => run(() => mdwiki.checkManifest())
 	);
 	server.registerTool(
 		'get_manifest',
@@ -72,22 +83,29 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	);
 	server.registerTool(
 		'validate_page',
-		{ description: 'Check page content against the manifest rules and return the same `warnings` as write_page, without writing anything', inputSchema: { path, content: z.string() } },
-		({ path, content }) => run(() => mdwiki.validatePage(path, content))
+		{ description: 'Check page content against the manifest rules and return the same `warnings` as write_page, without writing anything', inputSchema: { path, content: z.string(), agent } },
+		({ path, content, agent }) => run(() => mdwiki.validatePage(path, content, agent))
 	);
 	server.registerTool(
 		'delete_page',
-		{ description: 'Delete a page', inputSchema: { path } },
-		({ path }) => run(() => mdwiki.deletePage(path))
+		{ description: 'Delete a page. The history keeps a tombstone of the last version and its actor.', inputSchema: { path, agent, note } },
+		({ path, agent, note }) => run(() => mdwiki.deletePage(path, agent, note))
 	);
 	server.registerTool(
 		'move_page',
 		{
 			description:
 				'Move or rename a page and rewrite the links that would stop resolving to it. Unique-basename links keep working and stay unchanged; `#Heading`, `|alias` and `![[...]]` survive. Fails with target_exists when the destination exists. dry_run reports the same plan without writing.',
-			inputSchema: { from: path, to: z.string().describe('New page name without ".md", e.g. "Archiv/SilverBullet"'), dry_run: z.boolean().optional() }
+			inputSchema: {
+				from: path,
+				to: z.string().describe('New page name without ".md", e.g. "Archive/SilverBullet"'),
+				dry_run: z.boolean().optional(),
+				agent,
+				note,
+				overwrite: z.boolean().optional().describe('Replace an existing destination page (kept in .history) instead of failing with target_exists')
+			}
 		},
-		({ from, to, dry_run }) => run(() => mdwiki.movePage(from, to, dry_run ?? false))
+		({ from, to, dry_run, agent, note, overwrite }) => run(() => mdwiki.movePage(from, to, dry_run ?? false, agent, overwrite ?? false, note))
 	);
 	server.registerTool(
 		'check_links',
@@ -105,10 +123,45 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 				'Write several pages as one transaction. All base_hash values are checked before anything is written ("" = page must not exist); one mismatch returns 409 with every conflict and changes nothing. An unexpected disk error rolls the batch back. Warnings per page, never blocking.',
 			inputSchema: {
 				pages: z.array(z.object({ path, content: z.string(), base_hash: z.string().optional() })),
-				dry_run: z.boolean().optional()
+				dry_run: z.boolean().optional(),
+				agent,
+				note
 			}
 		},
-		({ pages, dry_run }) => run(() => mdwiki.writePages(pages, dry_run ?? false))
+		({ pages, dry_run, agent, note }) => run(() => mdwiki.writePages(pages, dry_run ?? false, agent, note))
+	);
+	server.registerTool(
+		'history',
+		{
+			description:
+				'Revision list of a page, newest first: {id, hash, version, at, size, actor, actor_source, actor_name, tool, bytes_added, bytes_removed, warnings, note?, marker?}. Revisions are written by every MCP/REST write; direct file edits are not recorded. Read only.',
+			inputSchema: { path, limit: z.number().int().optional() }
+		},
+		({ path, limit }) => run(() => mdwiki.history(path, limit ?? 50))
+	);
+	server.registerTool(
+		'activity',
+		{
+			description:
+				'Read-only revision activity across all pages, newest first. Filters: since (ISO/date), actor (slug), folder (prefix), page (exact), limit. Records carry version, actor, actor_source, tool, byte counts, warning rules and an optional note.',
+			inputSchema: {
+				since: z.string().optional(),
+				actor: z.string().optional(),
+				folder: z.string().optional(),
+				page: z.string().optional(),
+				limit: z.number().int().optional()
+			}
+		},
+		({ since, actor, folder, page, limit }) => run(() => mdwiki.activity(since, actor, folder, page, limit ?? 50))
+	);
+	server.registerTool(
+		'diff',
+		{
+			description:
+				'Unified diff between a revision and the page as it is now. `since` takes a revision id, a hash (prefix) or an ISO/date value (newest revision at or before it); without it the last revision is used. Read only.',
+			inputSchema: { path, since: z.string().optional() }
+		},
+		({ path, since }) => run(() => mdwiki.diff(path, since))
 	);
 	server.registerTool('list_tags', { description: 'All tags with page counts', inputSchema: {} }, () =>
 		run(() => mdwiki.listTags())

@@ -1,3 +1,5 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { describe, expect, it } from 'vitest';
@@ -38,7 +40,9 @@ describe('move_page', () => {
 		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
 		await mdwiki.writePage('Notes/Page', 'Siehe [[Notes/Rolodex]].\n');
 		const plan = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex', true);
-		expect(plan).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true, moved: false });
+		expect(plan).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true, moved: false, hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(plan).not.toHaveProperty('previous_hash');
+		expect(plan).not.toHaveProperty('overwrite');
 		expect(plan.rewritten).toEqual([{ path: 'Notes/Page', links: 1 }]);
 		expect(await exists(mdwiki, 'Notes/Rolodex')).toBe(true);
 		expect(await exists(mdwiki, 'Archive/Rolodex')).toBe(false);
@@ -118,6 +122,75 @@ describe('move_page', () => {
 		await expect(mdwiki.movePage('A/Missing', 'A/Neu')).rejects.toMatchObject({ status: 404 });
 		expect(await read(mdwiki, 'A/Source')).toBe('content\n');
 		expect(await read(mdwiki, 'B/Target')).toBe('occupied\n');
+	});
+
+	it('overwrites an existing target only with overwrite and reports the previous hash', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 'moved content\n');
+		await mdwiki.writePage('Notes/Target', 'old target\n');
+		const before = await mdwiki.readPage('Notes/Target');
+		const dry = await mdwiki.movePage('Notes/Source', 'Notes/Target', true, undefined, true);
+		expect(dry).toMatchObject({ moved: false, overwrite: true, previous_hash: before.hash, hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
+		expect(await read(mdwiki, 'Notes/Target')).toBe('old target\n');
+		const res = await mdwiki.movePage('Notes/Source', 'Notes/Target', false, undefined, true);
+		expect(res).toMatchObject({ moved: true, overwrite: true, previous_hash: before.hash });
+		expect(res.hash).toBe((await mdwiki.readPage('Notes/Target')).hash);
+		expect(await read(mdwiki, 'Notes/Target')).toBe('moved content\n');
+		expect(await exists(mdwiki, 'Notes/Source')).toBe(false);
+		const history = await mdwiki.history('Notes/Target');
+		expect(history.revisions.map((r) => r.marker)).toEqual(
+			expect.arrayContaining(['overwritten by move from Notes/Source', 'moved from Notes/Source'])
+		);
+	});
+
+	it('records no history when a move rolls back', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Moved', 'v1\n');
+		await mdwiki.writePage('Notes/Moved', 'v2\n');
+		await mdwiki.writePage('Notes/Link', '[[Notes/Moved]]\n');
+		const store = mdwiki.store as unknown as { write: (...args: unknown[]) => Promise<unknown> };
+		const original = store.write.bind(mdwiki.store);
+		store.write = async (...args: unknown[]) => {
+			if (String(args[0]) === 'Archive/Moved.md') throw new Error('disk full');
+			return original(...args);
+		};
+		try {
+			await expect(mdwiki.movePage('Notes/Moved', 'Archive/Moved')).rejects.toMatchObject({ status: 500, code: 'write_failed' });
+		} finally {
+			store.write = original;
+		}
+		expect(await read(mdwiki, 'Notes/Moved')).toBe('v2\n');
+		expect(await exists(mdwiki, 'Archive/Moved')).toBe(false);
+		expect((await mdwiki.history('Notes/Moved')).total).toBe(1);
+		expect((await mdwiki.history('Archive/Moved')).total).toBe(0);
+		expect((await mdwiki.history('Notes/Link')).total).toBe(0);
+	});
+
+	it('merges both histories on an overwrite move without duplicate versions', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 's0\n');
+		await mdwiki.writePage('Notes/Source', 's1\n');
+		await mdwiki.writePage('Notes/Target', 't0\n');
+		await mdwiki.writePage('Notes/Target', 't1\n');
+		await mdwiki.movePage('Notes/Source', 'Notes/Target', false, undefined, true);
+		const versions = (await mdwiki.history('Notes/Target')).revisions.map((r) => r.version);
+		expect(new Set(versions).size).toBe(versions.length);
+		expect(versions.sort((a, b) => a - b)).toEqual([1, 2, 3, 4]);
+	});
+
+	it('moves the history with the page and leaves _attachments alone', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('Notes/Source', 'v1\n');
+		await mdwiki.writePage('Notes/Source', 'v2\n');
+		await mdwiki.uploadAttachment('Notes/_attachments/pic.png', Buffer.from([137, 80, 78, 71]));
+		const root = mdwiki.store.root;
+		expect((await mdwiki.history('Notes/Source')).total).toBe(1);
+		await mdwiki.movePage('Notes/Source', 'Archive/Source');
+		expect(fs.existsSync(path.join(root, 'Notes/_attachments/pic.png'))).toBe(true);
+		expect(fs.readdirSync(path.join(root, '.history', 'Notes', 'Source'))).toEqual([]);
+		const moved = await mdwiki.history('Archive/Source');
+		expect(moved.revisions.map((r) => r.version)).toEqual([2, 1]);
+		expect(moved.revisions[0].marker).toBe('moved from Notes/Source');
 	});
 
 	it('is exposed as an MCP tool', async () => {
@@ -236,10 +309,18 @@ describe('write_pages', () => {
 		});
 	});
 
-	it('dry_run validates conflicts but writes nothing', async () => {
+	it('dry_run returns the hash and the warnings per page and writes nothing', async () => {
 		const { mdwiki } = await makeMdwiki();
-		const res = await mdwiki.writePages([{ path: 'Batch/Dry', content: 'nur ein Plan\n' }], true);
-		expect(res).toMatchObject({ dry_run: true });
+		const res = await mdwiki.writePages([{ path: 'Batch/Dry', content: 'just a plan\n' }], true);
+		expect(res.dry_run).toBe(true);
+		expect(res.written[0]).toMatchObject({
+			path: 'Batch/Dry',
+			hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+			warnings: [],
+			actor: null,
+			owner: null,
+			owner_ok: true
+		});
 		expect(await exists(mdwiki, 'Batch/Dry')).toBe(false);
 	});
 
@@ -248,9 +329,8 @@ describe('write_pages', () => {
 		await mdwiki.writePage('Batch/A', 'vorher\n');
 		const store = mdwiki.store as unknown as { write: (...args: unknown[]) => Promise<unknown> };
 		const original = store.write.bind(mdwiki.store);
-		let calls = 0;
 		store.write = async (...args: unknown[]) => {
-			if (++calls === 2) throw new Error('disk full');
+			if (String(args[0]).includes('Batch/B')) throw new Error('disk full');
 			return original(...args);
 		};
 		try {
