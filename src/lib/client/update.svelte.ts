@@ -6,10 +6,15 @@ export const update = $state({ available: false, dismissed: false });
 
 export function watchForUpdates() {
 	if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {};
-	// The first controllerchange is the first install claiming this page, not a new deployment.
-	const hadController = !!navigator.serviceWorker.controller;
+	// Only the first controllerchange can be the first install claiming this page. When the page
+	// was opened before any worker existed, the controller is null now but a later deployment
+	// must still be announced, so the flag flips with the first event, not the initial state.
+	let seen = !!navigator.serviceWorker.controller;
 	const onChange = () => {
-		if (!hadController) return;
+		if (!seen) {
+			seen = true;
+			return;
+		}
 		update.available = true;
 		update.dismissed = false;
 	};
