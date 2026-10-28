@@ -183,6 +183,7 @@ Set via environment variables (see [`.env.example`](.env.example)).
 | `POLL_INTERVAL` | `10000` | ms between mtime polls for changes made outside the app (CIFS has no reliable inotify) |
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
 | `MAX_UPLOAD_BYTES` | `20971520` | max size of an attachment |
+| `HISTORY_KEEP` | `50` | revisions kept per page under `.history/`; `0` keeps every revision |
 | `BODY_SIZE_LIMIT` | `25M` (image) | adapter-node request body limit; keep ≥ `MAX_UPLOAD_BYTES` |
 | `PORT`, `HOST`, `PROTOCOL_HEADER`, `HOST_HEADER` | | adapter-node settings |
 
@@ -228,8 +229,12 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/pages/move` | `{from, to, dry_run?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings}` |
 | `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
 | `GET /api/v1/links?path=&include_working=` | `{dead, ambiguous, orphans, anchors, counts}` |
+| `GET /api/v1/history/<path>?limit=` | revision list, newest first |
+| `GET /api/v1/diff/<path>?since=` | unified diff against a revision (id, hash prefix or ISO time) |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `history`, `diff`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
+
+See [`docs/tools.md`](docs/tools.md) for every page operation with signature and example.
 
 `write_page`, `write_pages`, `append_to_page` (and the REST writes behind them) return `warnings: [{rule, message, line?}]`, always present and empty when the page fits the manifest.
 
@@ -237,6 +242,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 
 - **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Contact]]`) keeps working and stays as written; `[[Notes/Contact]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
 - **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
+- **history** lists the revisions every MCP/REST write keeps under `.history/` (newest first, deletion and move markers included). **diff** returns a unified diff against a revision id, a hash prefix or a date. Direct file edits are not versioned. Details: [`docs/tools.md`](docs/tools.md).
 - **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
 
 ## Agent manifest
@@ -249,10 +255,13 @@ manifest: 1                       # required, version
 summary: "..."                    # required, 1..2000 chars, sent to agents as MCP `instructions`
 pages:                            # optional
   required_frontmatter: [updated] # keys every page must carry
+  allowed_tags: [project, runbook] # frontmatter tags allowed (with the `frontmatter` check)
   forbidden_prefixes: ["Sources:"] # lines starting like this (trimmed, outside code fences)
+  stand_field: updated            # date key for `stand_age` (default: updated)
+  stand_max_age_days: 90          # limit for `stand_age` (default: 90)
 folders:                          # optional; key = top-level folder
   Notes: { owner: "Team", description: "..." }   # owner, template, description: optional strings
-checks: [secrets, links]          # optional; "secrets" and "links"
+checks: [secrets, links]          # optional; see docs/manifest.md for all checks
 ---
 Prose: the full rules in plain words.
 ```
@@ -261,7 +270,7 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 
 - **Reading.** On MCP connect agents get the `summary` plus a pointer to `get_manifest` as `instructions`; `get_manifest` (and `GET /api/v1/manifest`) returns `rules`, `prose` and the content `hash`.
 - **Writing.** There is no special write tool: use `write_page("MANIFEST", …, base_hash)`. An invalid manifest (YAML error, missing `manifest`/`summary`, unknown key, `summary` too long) is rejected with `400 manifest_invalid` plus the issues, and the file stays unchanged. `delete_page("MANIFEST")` switches the feature off. If the file is edited outside the app, a valid change is picked up by the poll; an invalid one is logged and the last valid manifest stays active (at startup: no manifest, `get_manifest` returns `manifest_invalid`).
-- **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped), `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens) and, with the `links` check, `dead_link` for every wikilink whose target does not exist. A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
+- **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped), `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens), with the `links` check `dead_link` for every wikilink whose target does not exist, with `frontmatter` `tag_not_allowed` for tags outside `pages.allowed_tags`, with `owner` `owner_mismatch` when the acting agent (`agent` argument or `X-Agent` header) differs from the folder owner, and with `stand_age` `stand_missing` / `stand_unparseable` / `stand_stale` for the configured stand date. Full schema: [`docs/manifest.md`](docs/manifest.md). A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
 
 ## Operations
 

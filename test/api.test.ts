@@ -23,6 +23,8 @@ let evalRoute: typeof import('../src/routes/api/v1/eval/+server');
 let moveRoute: typeof import('../src/routes/api/v1/pages/move/+server');
 let batchRoute: typeof import('../src/routes/api/v1/pages/batch/+server');
 let linksRoute: typeof import('../src/routes/api/v1/links/+server');
+let historyRoute: typeof import('../src/routes/api/v1/history/[...path]/+server');
+let diffRoute: typeof import('../src/routes/api/v1/diff/[...path]/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
 
@@ -44,6 +46,8 @@ beforeAll(async () => {
 	moveRoute = await import('../src/routes/api/v1/pages/move/+server');
 	batchRoute = await import('../src/routes/api/v1/pages/batch/+server');
 	linksRoute = await import('../src/routes/api/v1/links/+server');
+	historyRoute = await import('../src/routes/api/v1/history/[...path]/+server');
+	diffRoute = await import('../src/routes/api/v1/diff/[...path]/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
 	const svc = await import('../src/lib/server/service');
@@ -411,7 +415,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['append_to_page', 'check_links', 'delete_page', 'evaluate', 'get_backlinks', 'get_manifest', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
+			['append_to_page', 'check_links', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_manifest', 'history', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_pages', 'read_page', 'search', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});
 
@@ -513,8 +517,58 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(17);
+		expect(json.result.tools.length).toBe(19);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
+	});
+});
+
+describe('REST: history and diff', () => {
+	it('lists revisions and diffs against the last one', async () => {
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'v1\n' }), { path: 'Ops/Rev' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'v2\n' }), { path: 'Ops/Rev' });
+		const list = await (await call(historyRoute.GET, req('GET', '/api/v1/history/Ops/Rev'), { path: 'Ops/Rev' })).json();
+		expect(list.total).toBe(1);
+		expect(list.revisions[0].hash).toMatch(/^[0-9a-f]{12}$/);
+		const diff = await (await call(diffRoute.GET, req('GET', '/api/v1/diff/Ops/Rev'), { path: 'Ops/Rev' })).json();
+		expect(diff.diff).toContain('-v1');
+		expect(diff.diff).toContain('+v2');
+		const byHash = await (
+			await call(diffRoute.GET, req('GET', `/api/v1/diff/Ops/Rev?since=${list.revisions[0].hash}`), { path: 'Ops/Rev' })
+		).json();
+		expect(byHash.since.id).toBe(list.revisions[0].id);
+		const missing = await call(diffRoute.GET, req('GET', '/api/v1/diff/Ops/Rev?since=nope'), { path: 'Ops/Rev' });
+		expect(missing.status).toBe(404);
+	});
+
+	it('keeps .history out of pages, /f/ and attachments', async () => {
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'a\n' }), { path: 'Ops/Guard' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'b\n' }), { path: 'Ops/Guard' });
+		const list = await (await call(historyRoute.GET, req('GET', '/api/v1/history/Ops/Guard'), { path: 'Ops/Guard' })).json();
+		const id = list.revisions[0].id;
+		const rel = `.history/Ops/Guard/${id}`;
+		expect((await call(pagesRoute.GET, req('GET', '/x'), { path: rel })).status).toBe(400);
+		expect((await call(pagesRoute.PUT, req('PUT', '/x', { content: 'x' }), { path: `${rel}.md` })).status).toBe(400);
+		expect((await call(pagesRoute.DELETE, req('DELETE', '/x'), { path: rel })).status).toBe(400);
+		const fStatus = await call(fileRoute.GET, new Request('http://localhost/f/x'), { path: `${rel}.md` }).then(
+			(r: Response) => r.status,
+			(e: { status?: number }) => e.status
+		);
+		expect(fStatus).toBe(400);
+		expect((await call(attachRoute.PUT, req('PUT', '/x', new Uint8Array([1])), { path: `${rel}.md` })).status).toBe(400);
+		const attached = await attachRoute.PUT({ request: req('PUT', '/x', new Uint8Array([1])), params: { path: rel } } as never);
+		expect(attached.status).toBe(400);
+		const files = await (await call(listRoute.GET, req('GET', '/api/v1/pages'))).json();
+		expect(files.pages.map((p: { path: string }) => p.path)).not.toContain(rel);
+	});
+
+	it('takes the acting agent from X-Agent for the owner check', async () => {
+		const manifest = '---\nmanifest: 1\nsummary: s\nchecks: [owner]\nfolders:\n  Ops: { owner: "alice" }\n---\n';
+		expect((await call(pagesRoute.PUT, req('PUT', '/x', { content: manifest }), { path: 'MANIFEST' })).status).toBe(200);
+		const viaHeader = await call(pagesRoute.PUT, req('PUT', '/x', { content: 'x\n' }, { 'x-agent': 'bob' }), { path: 'Ops/Owner' });
+		expect((await viaHeader.json()).warnings).toMatchObject([{ rule: 'owner_mismatch' }]);
+		const same = await call(pagesRoute.PUT, req('PUT', '/x', { content: 'x\n' }, { 'x-agent': 'alice' }), { path: 'Ops/Owner' });
+		expect((await same.json()).warnings).toEqual([]);
+		expect((await call(pagesRoute.PUT, req('PUT', '/x', { content: manifest }), { path: 'MANIFEST' })).status).toBe(200);
 	});
 });
 

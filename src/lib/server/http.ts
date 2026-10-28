@@ -31,3 +31,9 @@ export async function readBytes(request: Request, maxBytes: number): Promise<Buf
 	if (buf.length > maxBytes) throw new MdwikiError(413, 'too_large', 'Request body too large');
 	return buf;
 }
+
+/** The optional acting agent of a write request (manifest owner check only). */
+export function agentOf(request: Request): string | undefined {
+	const value = request.headers.get('x-agent')?.trim();
+	return value ? value.slice(0, 120) : undefined;
+}

@@ -111,6 +111,17 @@ export class Store {
 		}
 	}
 
+	/** Entries of one directory inside the space (dot entries excluded); [] when it does not exist. */
+	async list(relDir: string): Promise<string[]> {
+		const abs = await resolveInside(this.root, relDir);
+		try {
+			return (await fs.readdir(abs)).filter((name) => !name.startsWith('.'));
+		} catch (e) {
+			if ((e as NodeJS.ErrnoException).code === 'ENOENT') return [];
+			throw e;
+		}
+	}
+
 	/** Lists markdown files, skipping dot entries, directory symlinks and anything that resolves outside the root. */
 	async scan(): Promise<FileInfo[]> {
 		const realRoot = await fs.realpath(this.root);

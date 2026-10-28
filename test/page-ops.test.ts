@@ -247,9 +247,8 @@ describe('write_pages', () => {
 		await mdwiki.writePage('Batch/A', 'vorher\n');
 		const store = mdwiki.store as unknown as { write: (...args: unknown[]) => Promise<unknown> };
 		const original = store.write.bind(mdwiki.store);
-		let calls = 0;
 		store.write = async (...args: unknown[]) => {
-			if (++calls === 2) throw new Error('disk full');
+			if (String(args[0]).includes('Batch/B')) throw new Error('disk full');
 			return original(...args);
 		};
 		try {

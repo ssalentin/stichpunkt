@@ -35,6 +35,7 @@ async function run(fn: () => unknown | Promise<unknown>): Promise<ToolResult> {
 export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	const server = new McpServer({ name: BRAND, version: mcpVersion() }, { instructions: mdwiki.manifestInstructions() ?? undefined });
 	const path = z.string().describe('Page name without ".md", e.g. "Server/SilverBullet"');
+	const agent = z.string().optional().describe('Optional actor name; the owner and stand checks use it to compare the folder owner');
 
 	server.registerTool(
 		'search',
@@ -56,14 +57,14 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		{
 			description:
 				'Create or overwrite a page. With base_hash the write fails with a conflict if the page changed meanwhile; use "" to require that the page does not exist yet. The response carries `warnings` (rule violations from the space MANIFEST, empty when everything fits); the write itself is never blocked by them.',
-			inputSchema: { path, content: z.string(), base_hash: z.string().optional() }
+			inputSchema: { path, content: z.string(), base_hash: z.string().optional(), agent }
 		},
-		({ path, content, base_hash }) => run(() => mdwiki.writePage(path, content, base_hash))
+		({ path, content, base_hash, agent }) => run(() => mdwiki.writePage(path, content, base_hash, agent))
 	);
 	server.registerTool(
 		'append_to_page',
-		{ description: 'Append text to a page (creates it when missing). The response carries `warnings` for the resulting page, like write_page.', inputSchema: { path, content: z.string() } },
-		({ path, content }) => run(() => mdwiki.appendToPage(path, content))
+		{ description: 'Append text to a page (creates it when missing). The response carries `warnings` for the resulting page, like write_page.', inputSchema: { path, content: z.string(), agent } },
+		({ path, content, agent }) => run(() => mdwiki.appendToPage(path, content, agent))
 	);
 	server.registerTool(
 		'get_manifest',
@@ -72,8 +73,8 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	);
 	server.registerTool(
 		'validate_page',
-		{ description: 'Check page content against the manifest rules and return the same `warnings` as write_page, without writing anything', inputSchema: { path, content: z.string() } },
-		({ path, content }) => run(() => mdwiki.validatePage(path, content))
+		{ description: 'Check page content against the manifest rules and return the same `warnings` as write_page, without writing anything', inputSchema: { path, content: z.string(), agent } },
+		({ path, content, agent }) => run(() => mdwiki.validatePage(path, content, agent))
 	);
 	server.registerTool(
 		'delete_page',
@@ -105,10 +106,29 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 				'Write several pages as one transaction. All base_hash values are checked before anything is written ("" = page must not exist); one mismatch returns 409 with every conflict and changes nothing. An unexpected disk error rolls the batch back. Warnings per page, never blocking.',
 			inputSchema: {
 				pages: z.array(z.object({ path, content: z.string(), base_hash: z.string().optional() })),
-				dry_run: z.boolean().optional()
+				dry_run: z.boolean().optional(),
+				agent
 			}
 		},
-		({ pages, dry_run }) => run(() => mdwiki.writePages(pages, dry_run ?? false))
+		({ pages, dry_run, agent }) => run(() => mdwiki.writePages(pages, dry_run ?? false, agent))
+	);
+	server.registerTool(
+		'history',
+		{
+			description:
+				'Revision list of a page, newest first: {id, hash, at, size, marker?, agent?}. Revisions are written by every MCP/REST write; direct file edits are not recorded. Read only.',
+			inputSchema: { path, limit: z.number().int().optional() }
+		},
+		({ path, limit }) => run(() => mdwiki.history(path, limit ?? 50))
+	);
+	server.registerTool(
+		'diff',
+		{
+			description:
+				'Unified diff between a revision and the page as it is now. `since` takes a revision id, a hash (prefix) or an ISO/date value (newest revision at or before it); without it the last revision is used. Read only.',
+			inputSchema: { path, since: z.string().optional() }
+		},
+		({ path, since }) => run(() => mdwiki.diff(path, since))
 	);
 	server.registerTool('list_tags', { description: 'All tags with page counts', inputSchema: {} }, () =>
 		run(() => mdwiki.listTags())
