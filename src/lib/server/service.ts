@@ -243,7 +243,8 @@ export class Mdwiki {
 			} else {
 				folders.set(normalized, key);
 			}
-			if (!pages.some((page) => page.startsWith(normalized + '/'))) {
+			// a folder exists when it has pages below it or its own root page (Folder.md)
+			if (!pages.some((page) => page === normalized || page.startsWith(normalized + '/'))) {
 				issues.push({ path: `folders.${key}`, message: `Folder "${key}" has no page` });
 			}
 		}
