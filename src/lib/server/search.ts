@@ -305,6 +305,14 @@ function idf(index: SearchIndex, term: string): number {
 const K1 = 1.2;
 const B = 0.72;
 
+/**
+ * Agent helper pages: they list every category, path and rule, so their term coverage makes them
+ * compete with the pages that actually explain a topic. They stay findable, but count half when
+ * ranking. `includeHidden` (a caller asking for internal material) lifts the dampening.
+ */
+const META_PREFIXES = ['Intern/'];
+const META_WEIGHT = 0.5;
+
 function bm25(tf: number, len: number, avgLen: number, termIdf: number): number {
 	return (termIdf * (tf * (K1 + 1))) / (tf + K1 * (1 - B + (B * len) / Math.max(avgLen, 1)));
 }
@@ -350,7 +358,7 @@ export function runSearch(
 
 	// phrases are mandatory; everything else is ranked with a coverage penalty, so
 	// pages matching all words still win over pages matching only some of them
-	const scored = rank(index, allowed, concepts, phrases);
+	const scored = dampMeta(rank(index, allowed, concepts, phrases), !!opts.includeHidden);
 	let mode: SearchResult['mode'] = 'or';
 	const top = scored[0];
 	if (top && top.covered === concepts.length && top.phrasesOk) mode = 'and';
@@ -369,6 +377,15 @@ export function runSearch(
 		matched = candidates.map((c) => c.p);
 	}
 	return finish(empty, hits, matched, query, surfaceTerms, mode);
+}
+
+/** Down-weights helper pages under `Intern/` and re-sorts, unless the caller asked for internal material. */
+function dampMeta(scored: Scored[], includeHidden: boolean): Scored[] {
+	if (includeHidden) return scored;
+	for (const s of scored) {
+		if (META_PREFIXES.some((prefix) => s.page.page.path.startsWith(prefix))) s.score *= META_WEIGHT;
+	}
+	return scored.sort((a, b) => b.score - a.score || b.page.page.mtimeMs - a.page.page.mtimeMs);
 }
 
 /** Ranks pages by BM25 over sections and fields, with a coverage penalty for partial matches. */
