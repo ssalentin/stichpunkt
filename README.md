@@ -235,9 +235,9 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 
 ### Page operations
 
-- **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Rolodex]]`) keeps working and stays as written; `[[Familie/Rolodex]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
+- **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Contact]]`) keeps working and stays as written; `[[Notes/Contact]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
 - **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
-- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks the hidden `Library/` pages.
+- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
 
 ## Agent manifest
 

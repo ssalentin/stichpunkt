@@ -35,100 +35,100 @@ describe('scanLinks', () => {
 describe('move_page', () => {
 	it('dry_run reports the plan and writes nothing', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
-		await mdwiki.writePage('Notizen', 'Siehe [[Familie/Rolodex]].\n');
-		const plan = await mdwiki.movePage('Familie/Rolodex', 'Archiv/Rolodex', true);
-		expect(plan).toMatchObject({ from: 'Familie/Rolodex', to: 'Archiv/Rolodex', dry_run: true, moved: false });
-		expect(plan.rewritten).toEqual([{ path: 'Notizen', links: 1 }]);
-		expect(await exists(mdwiki, 'Familie/Rolodex')).toBe(true);
-		expect(await exists(mdwiki, 'Archiv/Rolodex')).toBe(false);
-		expect(await read(mdwiki, 'Notizen')).toBe('Siehe [[Familie/Rolodex]].\n');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
+		await mdwiki.writePage('Notes/Page', 'Siehe [[Notes/Rolodex]].\n');
+		const plan = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex', true);
+		expect(plan).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true, moved: false });
+		expect(plan.rewritten).toEqual([{ path: 'Notes/Page', links: 1 }]);
+		expect(await exists(mdwiki, 'Notes/Rolodex')).toBe(true);
+		expect(await exists(mdwiki, 'Archive/Rolodex')).toBe(false);
+		expect(await read(mdwiki, 'Notes/Page')).toBe('Siehe [[Notes/Rolodex]].\n');
 	});
 
 	it('preserves alias, heading and embed markers', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n\n## Kontakt\n');
-		await mdwiki.writePage('Notizen', '[[Familie/Rolodex#Kontakt|Rolodex-Liste]]\n\n![[Familie/Rolodex]]\n');
-		const res = await mdwiki.movePage('Familie/Rolodex', 'Archiv/Rolodex');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n\n## Contact\n');
+		await mdwiki.writePage('Notes/Page', '[[Notes/Rolodex#Contact|Rolodex list]]\n\n![[Notes/Rolodex]]\n');
+		const res = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex');
 		expect(res.moved).toBe(true);
-		expect(await read(mdwiki, 'Notizen')).toBe('[[Archiv/Rolodex#Kontakt|Rolodex-Liste]]\n\n![[Archiv/Rolodex]]\n');
-		const moved = await read(mdwiki, 'Archiv/Rolodex');
-		expect(moved).toContain('## Kontakt');
-		expect(await exists(mdwiki, 'Familie/Rolodex')).toBe(false);
+		expect(await read(mdwiki, 'Notes/Page')).toBe('[[Archive/Rolodex#Contact|Rolodex list]]\n\n![[Archive/Rolodex]]\n');
+		const moved = await read(mdwiki, 'Archive/Rolodex');
+		expect(moved).toContain('## Contact');
+		expect(await exists(mdwiki, 'Notes/Rolodex')).toBe(false);
 	});
 
 	it('leaves a unique-basename link alone', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
-		await mdwiki.writePage('Notizen', 'Siehe [[Rolodex]].\n');
-		const res = await mdwiki.movePage('Familie/Rolodex', 'Archiv/Rolodex');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
+		await mdwiki.writePage('Notes/Page', 'Siehe [[Rolodex]].\n');
+		const res = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex');
 		expect(res.rewritten).toEqual([]);
-		expect(await read(mdwiki, 'Notizen')).toBe('Siehe [[Rolodex]].\n');
+		expect(await read(mdwiki, 'Notes/Page')).toBe('Siehe [[Rolodex]].\n');
 		// and it now resolves to the new path
-		expect(mdwiki.index.resolve('Rolodex', 'Notizen')).toBe('Archiv/Rolodex');
+		expect(mdwiki.index.resolve('Rolodex', 'Notes/Page')).toBe('Archive/Rolodex');
 	});
 
 	it('rewrites a relative link from another folder when the basename is ambiguous', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
-		await mdwiki.writePage('Archiv/Rolodex', '# Anderer Rolodex\n');
-		await mdwiki.writePage('Familie/Notiz', 'Siehe [[Rolodex]].\n');
-		const res = await mdwiki.movePage('Familie/Rolodex', 'Neu/Rolodex');
-		expect(res.rewritten).toEqual([{ path: 'Familie/Notiz', links: 1 }]);
-		expect(await read(mdwiki, 'Familie/Notiz')).toBe('Siehe [[Neu/Rolodex]].\n');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
+		await mdwiki.writePage('Archive/Rolodex', '# Other Rolodex\n');
+		await mdwiki.writePage('Notes/Item', 'Siehe [[Rolodex]].\n');
+		const res = await mdwiki.movePage('Notes/Rolodex', 'New/Rolodex');
+		expect(res.rewritten).toEqual([{ path: 'Notes/Item', links: 1 }]);
+		expect(await read(mdwiki, 'Notes/Item')).toBe('Siehe [[New/Rolodex]].\n');
 	});
 
 	it('rewrites a full path from another folder and links inside the moved page', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', 'Selbst: [[Familie/Rolodex]]\n\nSiehe [[Familie/Rolodex#Kontakt]].\n');
-		await mdwiki.writePage('Andere/Seite', '[[Familie/Rolodex]]\n');
-		await mdwiki.movePage('Familie/Rolodex', 'Archiv/Kontakte');
-		expect(await read(mdwiki, 'Andere/Seite')).toBe('[[Archiv/Kontakte]]\n');
-		const moved = await read(mdwiki, 'Archiv/Kontakte');
-		expect(moved).toContain('Selbst: [[Archiv/Kontakte]]');
-		expect(moved).toContain('Siehe [[Archiv/Kontakte#Kontakt]].');
+		await mdwiki.writePage('Notes/Rolodex', 'Self: [[Notes/Rolodex]]\n\nSiehe [[Notes/Rolodex#Contact]].\n');
+		await mdwiki.writePage('Other/Page', '[[Notes/Rolodex]]\n');
+		await mdwiki.movePage('Notes/Rolodex', 'Archive/Contacts');
+		expect(await read(mdwiki, 'Other/Page')).toBe('[[Archive/Contacts]]\n');
+		const moved = await read(mdwiki, 'Archive/Contacts');
+		expect(moved).toContain('Self: [[Archive/Contacts]]');
+		expect(moved).toContain('Siehe [[Archive/Contacts#Contact]].');
 	});
 
 	it('does not touch code fences or inline code', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
-		const content = '[[Familie/Rolodex]]\n\n`[[Familie/Rolodex]]`\n\n```md\n[[Familie/Rolodex]]\n```\n';
-		await mdwiki.writePage('Notizen', content);
-		await mdwiki.movePage('Familie/Rolodex', 'Archiv/Rolodex');
-		expect(await read(mdwiki, 'Notizen')).toBe('[[Archiv/Rolodex]]\n\n`[[Familie/Rolodex]]`\n\n```md\n[[Familie/Rolodex]]\n```\n');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
+		const content = '[[Notes/Rolodex]]\n\n`[[Notes/Rolodex]]`\n\n```md\n[[Notes/Rolodex]]\n```\n';
+		await mdwiki.writePage('Notes/Page', content);
+		await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex');
+		expect(await read(mdwiki, 'Notes/Page')).toBe('[[Archive/Rolodex]]\n\n`[[Notes/Rolodex]]`\n\n```md\n[[Notes/Rolodex]]\n```\n');
 	});
 
 	it('reports an ambiguous basename that never resolved as unresolved', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
-		await mdwiki.writePage('Privat/Rolodex', '# Privat\n');
-		await mdwiki.writePage('Notizen', 'Siehe [[Rolodex]].\n');
-		const res = await mdwiki.movePage('Familie/Rolodex', 'Archiv/Rolodex-Alt');
-		expect(res.unresolved).toEqual([{ path: 'Notizen', target: 'Rolodex', reason: 'ambiguous_basename' }]);
-		expect(await read(mdwiki, 'Notizen')).toBe('Siehe [[Rolodex]].\n');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
+		await mdwiki.writePage('Personal/Rolodex', '# Personal\n');
+		await mdwiki.writePage('RolodexRef', 'Siehe [[Rolodex]].\n');
+		const res = await mdwiki.movePage('Notes/Rolodex', 'Archive/Rolodex-Old');
+		expect(res.unresolved).toEqual([{ path: 'RolodexRef', target: 'Rolodex', reason: 'ambiguous_basename' }]);
+		expect(await read(mdwiki, 'RolodexRef')).toBe('Siehe [[Rolodex]].\n');
 	});
 
 	it('refuses an existing target, the same path and a missing source', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('A/Quelle', 'in halt\n');
-		await mdwiki.writePage('B/Ziel', 'belegt\n');
-		await expect(mdwiki.movePage('A/Quelle', 'B/Ziel')).rejects.toMatchObject({ status: 409, code: 'target_exists' });
-		await expect(mdwiki.movePage('A/Quelle', 'A/Quelle')).rejects.toMatchObject({ status: 400 });
-		await expect(mdwiki.movePage('A/Fehlt', 'A/Neu')).rejects.toMatchObject({ status: 404 });
-		expect(await read(mdwiki, 'A/Quelle')).toBe('in halt\n');
-		expect(await read(mdwiki, 'B/Ziel')).toBe('belegt\n');
+		await mdwiki.writePage('A/Source', 'content\n');
+		await mdwiki.writePage('B/Target', 'occupied\n');
+		await expect(mdwiki.movePage('A/Source', 'B/Target')).rejects.toMatchObject({ status: 409, code: 'target_exists' });
+		await expect(mdwiki.movePage('A/Source', 'A/Source')).rejects.toMatchObject({ status: 400 });
+		await expect(mdwiki.movePage('A/Missing', 'A/Neu')).rejects.toMatchObject({ status: 404 });
+		expect(await read(mdwiki, 'A/Source')).toBe('content\n');
+		expect(await read(mdwiki, 'B/Target')).toBe('occupied\n');
 	});
 
 	it('is exposed as an MCP tool', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Familie/Rolodex', '# Rolodex\n');
+		await mdwiki.writePage('Notes/Rolodex', '# Rolodex\n');
 		const [a, b] = InMemoryTransport.createLinkedPair();
 		await buildMcpServer(mdwiki).connect(b);
 		const client = new Client({ name: 'test', version: '1' });
 		await client.connect(a);
-		const r = await client.callTool({ name: 'move_page', arguments: { from: 'Familie/Rolodex', to: 'Archiv/Rolodex', dry_run: true } });
+		const r = await client.callTool({ name: 'move_page', arguments: { from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true } });
 		const body = JSON.parse((r.content as { text: string }[])[0].text);
-		expect(body).toMatchObject({ from: 'Familie/Rolodex', to: 'Archiv/Rolodex', dry_run: true });
+		expect(body).toMatchObject({ from: 'Notes/Rolodex', to: 'Archive/Rolodex', dry_run: true });
 	});
 });
 
@@ -137,35 +137,35 @@ describe('check_links', () => {
 		const { mdwiki } = await makeMdwiki();
 		await mdwiki.writePage('A/Dup', '# Dup A\n');
 		await mdwiki.writePage('B/Dup', '# Dup B\n');
-		await mdwiki.writePage('Ziel', '# Ziel\n\n## Echter Abschnitt\n');
-		await mdwiki.writePage('Quelle', 'Zeile 1\n[[Fehlt]]\n[[Dup]]\n[[Ziel#Gibt Es Nicht]]\n[[Ziel#Echter Abschnitt]]\n');
-		const res = await mdwiki.checkLinks('Quelle');
+		await mdwiki.writePage('Target', '# Ziel\n\n## Real Section\n');
+		await mdwiki.writePage('Source', 'Zeile 1\n[[Missing]]\n[[Dup]]\n[[Target#No Such Section]]\n[[Target#Real Section]]\n');
+		const res = await mdwiki.checkLinks('Source');
 		expect(res.dead).toEqual(
 			expect.arrayContaining([
-				{ path: 'Quelle', line: 2, target: 'Fehlt' },
-				{ path: 'Quelle', line: 3, target: 'Dup' }
+				{ path: 'Source', line: 2, target: 'Missing' },
+				{ path: 'Source', line: 3, target: 'Dup' }
 			])
 		);
-		expect(res.ambiguous).toEqual([{ path: 'Quelle', target: 'Dup', candidates: ['A/Dup', 'B/Dup'] }]);
-		expect(res.anchors).toEqual([{ path: 'Quelle', target: 'Ziel', heading: 'Gibt Es Nicht' }]);
+		expect(res.ambiguous).toEqual([{ path: 'Source', target: 'Dup', candidates: ['A/Dup', 'B/Dup'] }]);
+		expect(res.anchors).toEqual([{ path: 'Source', target: 'Target', heading: 'No Such Section' }]);
 		expect(res.counts.dead).toBe(2);
 		expect(res.counts.anchors).toBe(1);
 	});
 
 	it('marks pages without incoming links, including root pages', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Einsam/Seite', 'kein Link hierher\n');
-		await mdwiki.writePage('Wurzel', 'auch niemand\n');
-		await mdwiki.writePage('Verlinkt', 'nur Text\n');
-		await mdwiki.writePage('Verlinker', '[[Verlinkt]]\n');
+		await mdwiki.writePage('Island/Page', 'kein Link hierher\n');
+		await mdwiki.writePage('Root', 'auch niemand\n');
+		await mdwiki.writePage('Linked', 'nur Text\n');
+		await mdwiki.writePage('Linker', '[[Linked]]\n');
 		const res = await mdwiki.checkLinks();
 		expect(res.orphans).toEqual(
 			expect.arrayContaining([
-				{ path: 'Einsam/Seite', root: false },
-				{ path: 'Wurzel', root: true }
+				{ path: 'Island/Page', root: false },
+				{ path: 'Root', root: true }
 			])
 		);
-		expect(res.orphans.map((o) => o.path)).not.toContain('Verlinkt');
+		expect(res.orphans.map((o) => o.path)).not.toContain('Linked');
 	});
 
 	it('skips hidden Library pages unless include_working is set', async () => {
@@ -178,10 +178,10 @@ describe('check_links', () => {
 
 	it('scopes to one page or folder', async () => {
 		const { mdwiki } = await makeMdwiki();
-		await mdwiki.writePage('Bereich/A', '[[Fehlt]]\n');
-		await mdwiki.writePage('Anders/B', '[[Auch Fehlt]]\n');
-		const res = await mdwiki.checkLinks('Bereich');
-		expect(res.dead.map((d) => d.path)).toEqual(['Bereich/A']);
+		await mdwiki.writePage('Area/A', '[[Missing]]\n');
+		await mdwiki.writePage('Anders/B', '[[Also Missing]]\n');
+		const res = await mdwiki.checkLinks('Area');
+		expect(res.dead.map((d) => d.path)).toEqual(['Area/A']);
 	});
 
 	it('is read-only and registered as a tool', async () => {
@@ -237,9 +237,9 @@ describe('write_pages', () => {
 
 	it('dry_run validates conflicts but writes nothing', async () => {
 		const { mdwiki } = await makeMdwiki();
-		const res = await mdwiki.writePages([{ path: 'Batch/Trocken', content: 'nur ein Plan\n' }], true);
+		const res = await mdwiki.writePages([{ path: 'Batch/Dry', content: 'nur ein Plan\n' }], true);
 		expect(res).toMatchObject({ dry_run: true });
-		expect(await exists(mdwiki, 'Batch/Trocken')).toBe(false);
+		expect(await exists(mdwiki, 'Batch/Dry')).toBe(false);
 	});
 
 	it('rolls back already written files when the disk fails', async () => {
@@ -271,12 +271,12 @@ describe('write_pages', () => {
 		const rules = '---\nmanifest: 1\nsummary: s\nchecks: [links]\n---\n';
 		await mdwiki.writePage('MANIFEST', rules);
 		const res = await mdwiki.writePages([
-			{ path: 'Batch/Gut', content: '[[index]]\n' },
-			{ path: 'Batch/Tot', content: '[[Gibt Es Nicht]]\n' }
+			{ path: 'Batch/Good', content: '[[index]]\n' },
+			{ path: 'Batch/Dead', content: '[[Missing Target]]\n' }
 		]);
 		expect(res.written[0].warnings).toEqual([]);
-		expect(res.written[1].warnings).toMatchObject([{ rule: 'dead_link', line: 1, message: expect.stringContaining('Gibt Es Nicht') }]);
-		expect(await read(mdwiki, 'Batch/Tot')).toBe('[[Gibt Es Nicht]]\n');
+		expect(res.written[1].warnings).toMatchObject([{ rule: 'dead_link', line: 1, message: expect.stringContaining('Missing Target') }]);
+		expect(await read(mdwiki, 'Batch/Dead')).toBe('[[Missing Target]]\n');
 	});
 
 	it('is exposed as an MCP tool', async () => {
