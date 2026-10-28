@@ -417,6 +417,41 @@ mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: va
 .empty { padding: 2rem 0; }
 .recent-block h2 { font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); margin: 0 0 0.5rem; }
 
+/* ---- search: suggestions, history, touch targets ---- */
+.search-clear {
+	position: absolute; right: 0.3rem;
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 40px; height: 40px; padding: 0;
+	font: 1.5rem/1 var(--mono); color: var(--muted);
+	background: none; border: 0; border-radius: 6px; cursor: pointer;
+}
+.search-clear:active { color: var(--fg); background: var(--sel); }
+.search-clear:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.searchbar:has(.search-clear) .searchbox { padding-right: 2.9rem; }
+.searchbox::-webkit-search-cancel-button,
+.searchbox::-webkit-search-decoration { -webkit-appearance: none; appearance: none; }
+.search-suggest { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: -0.3rem 0 0.9rem; }
+.suggest-key { font: 0.68rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.suggest {
+	min-height: 36px; padding: 0.3rem 0.75rem;
+	font: 0.85rem var(--mono); color: var(--fg);
+	background: var(--panel); border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
+}
+.suggest:hover, .suggest:focus-visible { border-color: var(--accent); color: var(--accent); }
+.suggest:active { background: var(--sel); }
+.search-history, .search-tags { margin: 0 0 1.4rem; }
+.search-history h2, .search-tags h2 { margin: 0 0 0.5rem; font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.chiprow { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.count-note { font-size: 0.8rem; letter-spacing: 0; text-transform: none; }
+@media (max-width: 899px) {
+	.searchbar .searchbox { font-size: 16px; }
+	.search-clear { width: 44px; height: 44px; }
+	.suggest, .facet, .chipchip { min-height: 44px; padding: 0.55rem 0.85rem; }
+	.hit { padding: 0.9rem 1rem; }
+	.hit-title { display: flex; flex-direction: column; justify-content: center; align-items: flex-start; min-height: 44px; }
+	.hit-section { display: inline-flex; align-items: center; min-height: 44px; }
+}
+
 /* ---- diagrams ---- */
 .diagram { margin: 1rem 0; overflow-x: auto; max-width: 100%; text-align: center; }
 /* never show the raw source: renderers replace the placeholder in place.

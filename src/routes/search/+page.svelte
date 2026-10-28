@@ -2,14 +2,48 @@
 	import { BRAND } from '#lib/brand';
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
+	import { rank, type Titled } from '#lib/fuzzy';
+	import { onMount } from 'svelte';
 
 	let { data } = $props();
 	// svelte-ignore state_referenced_locally -- q seeds from data.q once, then the effect below resyncs it on navigation
 	let q = $state(data.q);
 	$effect(() => void (q = data.q));
 
+	let input = $state<HTMLInputElement>();
+	let searches = $state<string[]>([]);
+
 	const result = $derived(data.result);
 	const terms = $derived(result?.terms ?? []);
+	/** title suggestions while typing: a lexical miss should still lead somewhere */
+	const jumps = $derived(q.trim() ? rank(data.jumpTitles, q, [], 4) : []);
+	/** tags the query points at ("#fin") or tags that occur in the corpus */
+	const tagHits = $derived.by(() => {
+		const needle = q.trim().replace(/^#/, '').toLowerCase();
+		if (!q.trim()) return data.tagNames.slice(0, 12);
+		return data.tagNames.filter((t) => t.toLowerCase().includes(needle) && needle.length > 1).slice(0, 8);
+	});
+
+	onMount(() => {
+		try {
+			const raw = JSON.parse(localStorage.getItem('stichpunkt.searches') ?? '[]');
+			if (Array.isArray(raw)) searches = raw.filter((s): s is string => typeof s === 'string').slice(0, 8);
+		} catch {
+			/* private mode: no history */
+		}
+		input?.focus();
+	});
+
+	function rememberSearch(value: string) {
+		const v = value.trim();
+		if (!v) return;
+		searches = [v, ...searches.filter((s) => s !== v)].slice(0, 8);
+		try {
+			localStorage.setItem('stichpunkt.searches', JSON.stringify(searches));
+		} catch {
+			/* private mode */
+		}
+	}
 
 	function esc(s: string) {
 		return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -30,7 +64,18 @@
 	}
 
 	function submit() {
+		rememberSearch(q);
 		goto(`/search?q=${encodeURIComponent(q)}`, { reset: false });
+	}
+
+	function jumpTo(item: Titled) {
+		rememberSearch(q);
+		goto(`/${encodeURI(item.path)}`);
+	}
+
+	function run(value: string) {
+		q = value;
+		submit();
 	}
 
 	/** refine the current query with a facet without losing the rest */
@@ -43,6 +88,11 @@
 	function removeToken(token: string) {
 		goto(`/search?q=${encodeURIComponent(data.q.split(/\s+/).filter((w) => w !== token).join(' '))}`);
 	}
+
+	function clear() {
+		q = '';
+		goto('/search');
+	}
 </script>
 
 <svelte:head><title>Search · {BRAND}</title></svelte:head>
@@ -53,6 +103,7 @@
 		<input
 			class="searchbox"
 			type="search"
+			bind:this={input}
 			bind:value={q}
 			placeholder="Search pages, #tags, in:folder"
 			enterkeyhint="search"
@@ -61,17 +112,33 @@
 			spellcheck="false"
 			aria-label="Search all pages"
 		/>
+		{#if q}<button type="button" class="search-clear" aria-label="Clear search" onclick={clear}><span aria-hidden="true">×</span></button>{/if}
 	</form>
 
 	{#if result}
-		<div class="activefilters">
-			{#each result.filters.tags as t}<button class="chipchip" onclick={() => removeToken(`#${t}`)}>#{t} <span aria-hidden="true">×</span></button>{/each}
-			{#each result.filters.folders as f}<button class="chipchip" onclick={() => removeToken(`in:${f}`)}>in:{f} <span aria-hidden="true">×</span></button>{/each}
-		</div>
+		{#if result.filters.tags.length || result.filters.folders.length}
+			<div class="activefilters">
+				{#each result.filters.tags as t}<button class="chipchip" onclick={() => removeToken(`#${t}`)}>#{t} <span aria-hidden="true">×</span></button>{/each}
+				{#each result.filters.folders as f}<button class="chipchip" onclick={() => removeToken(`in:${f}`)}>in:{f} <span aria-hidden="true">×</span></button>{/each}
+			</div>
+		{/if}
+
+		{#if jumps.length}
+			<div class="search-suggest">
+				<span class="suggest-key">Jump to</span>
+				{#each jumps as j (j.path)}
+					<button class="suggest" onclick={() => jumpTo(j)} title={j.path}>{j.title}</button>
+				{/each}
+			</div>
+		{/if}
+
+		<p class="count" aria-live="polite">
+			{result.total} {result.total === 1 ? 'page' : 'pages'}
+			{#if result.mode === 'or'}<span class="count-note">· some words do not occur, showing partial matches</span>{/if}
+			{#if result.mode === 'fuzzy'}<span class="count-note">· no exact match, nearest pages</span>{/if}
+		</p>
 
 		{#if result.results.length}
-			<p class="count">{result.total} {result.total === 1 ? 'page' : 'pages'}</p>
-
 			{#if result.facets.folders.length > 1 || result.facets.tags.length}
 				<div class="facets">
 					{#if result.facets.folders.length > 1}
@@ -112,8 +179,6 @@
 							<div class="hit-tags">{#each r.tags as t}<a class="tag" href="/tag/{encodeURI(t)}">#{t}</a>{/each}</div>
 						{/if}
 					</li>
-				{:else}
-					<li class="muted">No page matches “{data.q}”. Try fewer words or a different tag.</li>
 				{/each}
 			</ul>
 		{:else}
@@ -123,6 +188,17 @@
 			</div>
 		{/if}
 	{:else}
+		{#if searches.length}
+			<section class="search-history">
+				<h2>Recent searches</h2>
+				<div class="chiprow">
+					{#each searches as s (s)}<button class="facet" onclick={() => run(s)}>{s}</button>{/each}
+				</div>
+			</section>
+		{/if}
+
+		{@render tagChips('Tags')}
+
 		<section class="recent-block">
 			<h2>Recently changed</h2>
 			<ul class="hits">
@@ -135,3 +211,12 @@
 		</section>
 	{/if}
 </div>
+
+{#snippet tagChips(label: string)}
+	{#if tagHits.length}
+		<section class="search-tags">
+			<h2>{label}</h2>
+			<div class="chiprow">{#each tagHits as t (t)}<button class="facet" onclick={() => run(`#${t}`)}>#{t}</button>{/each}</div>
+		</section>
+	{/if}
+{/snippet}

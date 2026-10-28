@@ -62,7 +62,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - CommonMark + GFM, frontmatter, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]` wikilinks, `#tags` (inline and frontmatter) and syntax-highlighted code.
 - Mobile-first shell (bottom bar and sheet), three columns on desktop, quick switcher (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), breadcrumbs, outline, backlinks and a properties rail.
 - Callouts (`> [!note]`, `[!tip]`, `[!warning]`, … with `+`/`-` for foldable ones), footnotes (`[^1]`), emoji shortcodes (`:tada:`) and transclusion (`![[Page]]`, `![[Page#Heading]]`, nested up to 3 levels with a loop guard); see the `Features/` demo pages.
-- Full-text search with ranked result cards, anchors, highlighted snippets and folder/tag facets (`#tag`, `in:folder`, `"phrases"`).
+- Full-text search ranked by BM25 over sections and fields, with German stemming, compound splitting (`Arzttermin` → `Arzt` + `Termin`), quoted phrases, `#tag` / `in:folder` filters, highlighted snippets around the best match and folder/tag facets.
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
 - Live reload: the UI and the installed PWA follow content changes (API/MCP writes and file edits) over server-sent events (`/_ui/events`). The changed blocks flash, the tree and *Recent* update, a notice appears, and nothing reloads while text is selected. Reconnects catch up automatically; the footer shows the connection state. Behind a reverse proxy, response buffering must be off for `/_ui/events` (the app sends `X-Accel-Buffering: no`, which nginx honours; Traefik streams by default).
 - Installable PWA (Chrome on Android: "Install" button in the header or menu → *Install app*); the service worker caches the shell and the last ~50 visited pages for offline reading and shows an offline page for anything not yet visited. The manifest ships a phone and a desktop screenshot for Chrome's richer install dialog. Installing requires HTTPS (or `localhost`).
@@ -292,8 +292,9 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 
 ```sh
 npm ci
-npm test            # vitest: renderer, index, polling, conflicts, path safety, auth, MCP
+npm test            # vitest: renderer, index, search, polling, conflicts, path safety, auth, MCP
 npm run check       # svelte-check
+npm run search:eval # golden-list ranking check against SPACE_DIR (hit@3, mean rank)
 npm run build
 npm run dev         # vite dev server
 ```

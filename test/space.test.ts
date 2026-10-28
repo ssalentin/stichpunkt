@@ -122,19 +122,21 @@ describe('index', () => {
 describe('external changes (mtime poll)', () => {
 	it('shows a file written outside the app in search and backlinks after one poll cycle', async () => {
 		const { mdwiki, dir } = await setup({ poll: 100 });
-		expect(mdwiki.search('quokka-marker').results).toEqual([]);
-		fs.writeFileSync(path.join(dir, 'External.md'), 'quokka-marker links to [[Server/Beta]]\n');
+		// partial matches are allowed since BM25 ranking (AND first, then OR), so the
+		// check is about the new page, not about an empty result set
+		expect(mdwiki.search('quokka').results.map((h) => h.path)).not.toContain('External');
+		fs.writeFileSync(path.join(dir, 'External.md'), 'quokka links to [[Server/Beta]]\n');
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('quokka-marker').results.map((h) => h.path)).toEqual(['External']);
+		expect(mdwiki.search('quokka').results.map((h) => h.path)).toContain('External');
 		expect(mdwiki.getBacklinks('Server/Beta').map((b) => b.path)).toContain('External');
 		// modification and deletion are picked up as well
-		fs.writeFileSync(path.join(dir, 'External.md'), 'axolotl-marker\n');
+		fs.writeFileSync(path.join(dir, 'External.md'), 'axolotl\n');
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('quokka-marker').results).toEqual([]);
-		expect(mdwiki.search('axolotl-marker').results).toHaveLength(1);
+		expect(mdwiki.search('quokka').results.map((h) => h.path)).not.toContain('External');
+		expect(mdwiki.search('axolotl').results[0]?.path).toBe('External');
 		fs.rmSync(path.join(dir, 'External.md'));
 		await new Promise((r) => setTimeout(r, 450));
-		expect(mdwiki.search('axolotl-marker').results).toEqual([]);
+		expect(mdwiki.search('axolotl').results.map((h) => h.path)).not.toContain('External');
 	});
 });
 
@@ -182,7 +184,8 @@ describe('search', () => {
 	it('falls back to fuzzy title matching and hides Library', async () => {
 		const { mdwiki } = await setup();
 		expect(mdwiki.search('syntx').results.map((h) => h.path)).toContain('Syntax');
-		expect(mdwiki.search('hidden library page').results).toEqual([]);
+		// partial matches may surface other pages, but hidden Library pages never
+		expect(mdwiki.search('hidden library page').results.map((h) => h.path)).not.toContain('Library/Hidden');
 	});
 });
 
