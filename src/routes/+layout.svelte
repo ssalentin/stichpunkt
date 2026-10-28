@@ -131,9 +131,11 @@
 			/* history is unavailable in some embedded browsers; the drawer still works */
 		}
 	}
-	function closeDrawer() {
+	function closeDrawer(opts: { navigating?: boolean } = {}) {
 		if (!ui.drawer) return;
 		ui.drawer = false;
+		// a navigation replaces the marker entry itself, so popping here would drop the previous page
+		if (opts.navigating) return;
 		// only pop our own entry: after a link navigation the state no longer carries the marker
 		if ((history.state as { mdwikiDrawer?: boolean } | null)?.mdwikiDrawer) {
 			try {
