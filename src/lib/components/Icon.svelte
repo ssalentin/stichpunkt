@@ -1,5 +1,19 @@
 <script lang="ts">
-	type Name = 'sun' | 'moon' | 'auto' | 'github' | 'search' | 'sidebar-left' | 'sidebar-right' | 'file' | 'text' | 'enter';
+	type Name =
+		| 'sun'
+		| 'moon'
+		| 'auto'
+		| 'github'
+		| 'search'
+		| 'sidebar-left'
+		| 'sidebar-right'
+		| 'file'
+		| 'text'
+		| 'enter'
+		| 'menu'
+		| 'home'
+		| 'more'
+		| 'close';
 	let { name, size = 16 }: { name: Name; size?: number } = $props();
 </script>
 
@@ -24,5 +38,13 @@
 		<path d="M4 6h16M4 12h16M4 18h10" />
 	{:else if name === 'enter'}
 		<path d="M20 5v7a2 2 0 0 1-2 2H5" /><path d="m9 10-4 4 4 4" />
+	{:else if name === 'menu'}
+		<path d="M4 6h16M4 12h16M4 18h16" />
+	{:else if name === 'home'}
+		<path d="M3 11.5 12 4l9 7.5" /><path d="M6 10v10h12V10" />
+	{:else if name === 'more'}
+		<circle cx="5" cy="12" r="1.6" fill="currentColor" /><circle cx="12" cy="12" r="1.6" fill="currentColor" /><circle cx="19" cy="12" r="1.6" fill="currentColor" />
+	{:else if name === 'close'}
+		<path d="M6 6l12 12M18 6L6 18" />
 	{/if}
 </svg>

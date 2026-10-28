@@ -2,6 +2,8 @@
 export const ui = $state({
 	switcher: null as null | 'switch',
 	sheet: false,
+	/** mobile navigation drawer (page tree, recent, tags) */
+	drawer: false,
 	toast: '',
 	/** optional button on the toast, e.g. "Jump to change" */
 	toastAction: null as null | { label: string; run: () => void },
