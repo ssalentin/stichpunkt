@@ -754,6 +754,33 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 .live.on .live-dot { background: var(--hl-string); }
 .toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
 
+/* ---- new deployment available ---- */
+.update-hint {
+	position: fixed; z-index: 55; left: 50%; transform: translateX(-50%);
+	bottom: calc(var(--bar-h) + 0.75rem + env(safe-area-inset-bottom));
+	display: flex; align-items: center; gap: 0.6rem;
+	max-width: calc(100vw - 1.5rem); padding: 0.35rem 0.35rem 0.35rem 0.9rem;
+	background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+	font: 0.85rem var(--mono); color: var(--fg);
+}
+.update-hint > span { white-space: nowrap; }
+.update-action {
+	min-height: 36px; padding: 0 0.7rem;
+	font: inherit; color: var(--bg); background: var(--accent);
+	border: 0; border-radius: 7px; cursor: pointer;
+}
+.update-dismiss {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 36px; height: 36px; padding: 0;
+	font: 1.2rem/1 var(--mono); color: var(--muted);
+	background: none; border: 0; border-radius: 7px; cursor: pointer;
+}
+.update-action:active, .update-dismiss:active { filter: brightness(1.1); }
+.update-action:focus-visible, .update-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (min-width: 900px) { .update-hint { bottom: 1.25rem; } }
+@media (max-width: 899px) { .update-action, .update-dismiss { min-height: 44px; height: 44px; width: 44px; } .update-action { width: auto; padding: 0 0.9rem; } }
+
 /* ---- live reload ---- */
 .live-changed { animation: live-flash 3.2s ease-out; border-radius: 4px; }
 @keyframes live-flash {
@@ -767,6 +794,33 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 .live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
 .live.on .live-dot { background: var(--hl-string); }
 .toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+
+/* ---- new deployment available ---- */
+.update-hint {
+	position: fixed; z-index: 55; left: 50%; transform: translateX(-50%);
+	bottom: calc(var(--bar-h) + 0.75rem + env(safe-area-inset-bottom));
+	display: flex; align-items: center; gap: 0.6rem;
+	max-width: calc(100vw - 1.5rem); padding: 0.35rem 0.35rem 0.35rem 0.9rem;
+	background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+	font: 0.85rem var(--mono); color: var(--fg);
+}
+.update-hint > span { white-space: nowrap; }
+.update-action {
+	min-height: 36px; padding: 0 0.7rem;
+	font: inherit; color: var(--bg); background: var(--accent);
+	border: 0; border-radius: 7px; cursor: pointer;
+}
+.update-dismiss {
+	display: inline-flex; align-items: center; justify-content: center;
+	width: 36px; height: 36px; padding: 0;
+	font: 1.2rem/1 var(--mono); color: var(--muted);
+	background: none; border: 0; border-radius: 7px; cursor: pointer;
+}
+.update-action:active, .update-dismiss:active { filter: brightness(1.1); }
+.update-action:focus-visible, .update-dismiss:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (min-width: 900px) { .update-hint { bottom: 1.25rem; } }
+@media (max-width: 899px) { .update-action, .update-dismiss { min-height: 44px; height: 44px; width: 44px; } .update-action { width: auto; padding: 0 0.9rem; } }
 
 /* ---- mobile type scale --------------------------------------------------------------
    Everything here is in rem, so a bigger system font size on the phone scales it.

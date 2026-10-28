@@ -13,6 +13,7 @@
 	import { startLive } from '#lib/client/live';
 	import { ui, visit } from '#lib/ui.svelte';
 	import { install, listenForInstall, pwa } from '#lib/client/pwa.svelte';
+	import { update, watchForUpdates } from '#lib/client/update.svelte';
 	import { onMount } from 'svelte';
 
 	let { data, children } = $props();
@@ -48,9 +49,11 @@
 		const stopLive = startLive({ onChange: reload, onStatus: (on) => (ui.live = on) });
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 		const stopInstall = listenForInstall();
+		const stopUpdates = watchForUpdates();
 		return () => {
 			stopLive();
 			stopInstall();
+			stopUpdates();
 		};
 	});
 	afterNavigate(() => {
@@ -241,5 +244,12 @@
 	{/if}
 
 	<Switcher />
+	{#if update.available && !update.dismissed}
+		<div class="update-hint" role="status">
+			<span>New version available</span>
+			<button class="update-action" onclick={() => location.reload()}>Reload</button>
+			<button class="update-dismiss" aria-label="Dismiss" onclick={() => (update.dismissed = true)}>×</button>
+		</div>
+	{/if}
 	{#if ui.toast}<div class="toast" role="status">{ui.toast}{#if ui.toastAction}<button class="toast-action" onclick={() => (ui.toastAction?.run(), (ui.toast = ''), (ui.toastAction = null))}>{ui.toastAction.label}</button>{/if}</div>{/if}
 </div>
