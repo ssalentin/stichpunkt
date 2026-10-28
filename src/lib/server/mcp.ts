@@ -80,6 +80,36 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		{ description: 'Delete a page', inputSchema: { path } },
 		({ path }) => run(() => mdwiki.deletePage(path))
 	);
+	server.registerTool(
+		'move_page',
+		{
+			description:
+				'Move or rename a page and rewrite the links that would stop resolving to it. Unique-basename links keep working and stay unchanged; `#Heading`, `|alias` and `![[...]]` survive. Fails with target_exists when the destination exists. dry_run reports the same plan without writing.',
+			inputSchema: { from: path, to: z.string().describe('New page name without ".md", e.g. "Archiv/SilverBullet"'), dry_run: z.boolean().optional() }
+		},
+		({ from, to, dry_run }) => run(() => mdwiki.movePage(from, to, dry_run ?? false))
+	);
+	server.registerTool(
+		'check_links',
+		{
+			description:
+				'Read-only link audit: dead targets, ambiguous basenames, pages without incoming links (root pages are marked) and headings that do not exist. `path` limits the check to one page or folder; `include_working` also checks the hidden Library pages.',
+			inputSchema: { path: z.string().optional(), include_working: z.boolean().optional() }
+		},
+		({ path, include_working }) => run(() => mdwiki.checkLinks(path, include_working ?? false))
+	);
+	server.registerTool(
+		'write_pages',
+		{
+			description:
+				'Write several pages as one transaction. All base_hash values are checked before anything is written ("" = page must not exist); one mismatch returns 409 with every conflict and changes nothing. An unexpected disk error rolls the batch back. Warnings per page, never blocking.',
+			inputSchema: {
+				pages: z.array(z.object({ path, content: z.string(), base_hash: z.string().optional() })),
+				dry_run: z.boolean().optional()
+			}
+		},
+		({ pages, dry_run }) => run(() => mdwiki.writePages(pages, dry_run ?? false))
+	);
 	server.registerTool('list_tags', { description: 'All tags with page counts', inputSchema: {} }, () =>
 		run(() => mdwiki.listTags())
 	);

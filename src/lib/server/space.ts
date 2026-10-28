@@ -156,14 +156,29 @@ export class SpaceIndex {
 
 	/** Called after the app itself wrote a page. */
 	applyWrite(page: string, content: string, info: FileInfo): void {
-		const isNew = !this.pages.has(page);
-		this.ingest(pageToFile(page), content, info);
-		this.rebuild(isNew, [page]);
+		this.applyBatch([{ path: page, content, info }]);
 	}
 
 	applyDelete(page: string): void {
-		if (page === 'CONFIG') this.configTags = new Map();
-		if (this.pages.delete(page)) this.rebuild(true, [page]);
+		this.applyBatch([], [page]);
+	}
+
+	/**
+	 * Applies several writes and deletions and rebuilds the derived maps once. Used by the
+	 * page operations so a batch (or a move with rewritten backlinks) does not rebuild the
+	 * index per file.
+	 */
+	applyBatch(changes: { path: string; content: string; info: FileInfo }[], deleted: string[] = []): void {
+		let setChanged = false;
+		for (const page of deleted) {
+			if (page === 'CONFIG') this.configTags = new Map();
+			if (this.pages.delete(page)) setChanged = true;
+		}
+		for (const change of changes) {
+			if (!this.pages.has(change.path)) setChanged = true;
+			this.ingest(pageToFile(change.path), change.content, change.info);
+		}
+		this.rebuild(setChanged, [...changes.map((c) => c.path), ...deleted]);
 	}
 
 	private rebuild(setChanged: boolean, paths: string[] = []): void {

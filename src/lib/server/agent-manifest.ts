@@ -21,7 +21,7 @@ export const manifestSchema = z.strictObject({
 		})
 		.optional(),
 	folders: z.record(z.string(), folder).optional(),
-	checks: z.array(z.enum(['secrets'])).optional()
+	checks: z.array(z.enum(['secrets', 'links'])).optional()
 });
 
 export type ManifestRules = z.infer<typeof manifestSchema>;
@@ -39,7 +39,7 @@ export interface ParsedManifest {
 export type ManifestParse = { ok: true; value: ParsedManifest } | { ok: false; issues: ManifestIssue[] };
 
 export interface PageWarning {
-	rule: 'missing_frontmatter' | 'forbidden_prefix' | 'unknown_folder' | 'possible_secret';
+	rule: 'missing_frontmatter' | 'forbidden_prefix' | 'unknown_folder' | 'possible_secret' | 'dead_link';
 	message: string;
 	line?: number;
 }

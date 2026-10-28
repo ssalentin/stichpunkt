@@ -225,10 +225,19 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 | `GET /api/v1/manifest` | the [agent manifest](#agent-manifest): `{exists, path, hash, rules, prose}` or `{exists: false}` |
 | `POST /api/v1/validate` | `{path, content}` → `{warnings}`; checks a page against the manifest, writes nothing |
+| `POST /api/v1/pages/move` | `{from, to, dry_run?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings}` |
+| `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
+| `GET /api/v1/links?path=&include_working=` | `{dead, ambiguous, orphans, anchors, counts}` |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `append_to_page`, `delete_page`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `upload_attachment`, `get_manifest`, `validate_page`.
 
-`write_page`, `append_to_page` (and the REST writes behind them) return `warnings: [{rule, message, line?}]`, always present and empty when the page fits the manifest.
+`write_page`, `write_pages`, `append_to_page` (and the REST writes behind them) return `warnings: [{rule, message, line?}]`, always present and empty when the page fits the manifest.
+
+### Page operations
+
+- **move_page** renames or moves a page in one transaction and rewrites only the links that would stop resolving to it. A unique-basename link (`[[Rolodex]]`) keeps working and stays as written; `[[Familie/Rolodex]]` and relative links that no longer resolve are rewritten. `#Heading`, `|alias` and `![[…]]` survive, and nothing inside fenced or inline code is touched. An existing destination is a `409 target_exists`; `dry_run` returns the plan without writing.
+- **write_pages** writes several pages atomically: sorted locks, all `base_hash` values checked before the first write (`""` = must not exist), one index rebuild. One stale hash returns `409` with every conflict in `conflicts` and changes nothing; an unexpected disk error rolls already written files back. Duplicate paths in one batch are a `400`.
+- **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_working` also checks the hidden `Library/` pages.
 
 ## Agent manifest
 
@@ -243,7 +252,7 @@ pages:                            # optional
   forbidden_prefixes: ["Sources:"] # lines starting like this (trimmed, outside code fences)
 folders:                          # optional; key = top-level folder
   Notes: { owner: "Team", description: "..." }   # owner, template, description: optional strings
-checks: [secrets]                 # optional; v1 knows only "secrets"
+checks: [secrets, links]          # optional; "secrets" and "links"
 ---
 Prose: the full rules in plain words.
 ```
@@ -252,7 +261,7 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 
 - **Reading.** On MCP connect agents get the `summary` plus a pointer to `get_manifest` as `instructions`; `get_manifest` (and `GET /api/v1/manifest`) returns `rules`, `prose` and the content `hash`.
 - **Writing.** There is no special write tool: use `write_page("MANIFEST", …, base_hash)`. An invalid manifest (YAML error, missing `manifest`/`summary`, unknown key, `summary` too long) is rejected with `400 manifest_invalid` plus the issues, and the file stays unchanged. `delete_page("MANIFEST")` switches the feature off. If the file is edited outside the app, a valid change is picked up by the poll; an invalid one is logged and the last valid manifest stays active (at startup: no manifest, `get_manifest` returns `manifest_invalid`).
-- **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped) and `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens). A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
+- **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped), `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens) and, with the `links` check, `dead_link` for every wikilink whose target does not exist. A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
 
 ## Operations
 
