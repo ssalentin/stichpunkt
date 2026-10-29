@@ -20,8 +20,15 @@ interface Change extends Hello {
 const RETRY_MIN = 3000;
 const RETRY_MAX = 60000;
 
-export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
-	if (typeof EventSource === 'undefined') return () => {};
+export interface LiveSession {
+	/** stop the stream and remove every listener */
+	stop(): void;
+	/** close the current stream and connect again right away */
+	retry(): void;
+}
+
+export function startLive(h: LiveHandlers, url = '/_ui/events'): LiveSession {
+	if (typeof EventSource === 'undefined') return { stop: () => {}, retry: () => {} };
 	let es: EventSource | null = null;
 	let seen: Hello | null = null;
 	/** changes that arrived while the tab was hidden; null = none, [] with `all` = unknown */
@@ -51,10 +58,13 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 		delay = Math.min(delay * 2, RETRY_MAX);
 	};
 
-	/** a closed connection waits for its timer; try right away instead (tab visible again, network back) */
-	const retryNow = () => {
-		if (stopped || !timer) return;
-		clearTimeout(timer);
+	/**
+	 * Connect again right away: after a timer, but also while the browser is still retrying a
+	 * stuck CONNECTING stream (the normal state after a phone tab returns from the background).
+	 */
+	const retry = () => {
+		if (stopped) return;
+		if (timer) clearTimeout(timer);
 		timer = null;
 		delay = RETRY_MIN;
 		connect();
@@ -90,7 +100,8 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 
 	const onVisible = () => {
 		if (document.hidden) return;
-		retryNow();
+		// always reconnect when the tab comes back, even if a previous stream never opened
+		retry();
 		if (!held) return;
 		const paths = heldAll ? null : [...held];
 		held = null;
@@ -98,16 +109,19 @@ export function startLive(h: LiveHandlers, url = '/_ui/events'): () => void {
 		h.onChange(paths);
 	};
 	document.addEventListener('visibilitychange', onVisible);
-	window.addEventListener('online', retryNow);
+	window.addEventListener('online', retry);
 	connect();
 
-	return () => {
-		stopped = true;
-		if (timer) clearTimeout(timer);
-		timer = null;
-		document.removeEventListener('visibilitychange', onVisible);
-		window.removeEventListener('online', retryNow);
-		es?.close();
+	return {
+		stop: () => {
+			stopped = true;
+			if (timer) clearTimeout(timer);
+			timer = null;
+			document.removeEventListener('visibilitychange', onVisible);
+			window.removeEventListener('online', retry);
+			es?.close();
+		},
+		retry
 	};
 }
 

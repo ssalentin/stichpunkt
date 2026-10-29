@@ -139,7 +139,7 @@ describe('startLive (client)', () => {
 		es.onerror!();
 		expect(calls).toEqual([['A']]);
 		expect(status).toEqual([true, false]);
-		stop();
+		stop.stop();
 		expect(es.closed).toBe(true);
 	});
 
@@ -230,7 +230,7 @@ describe('startLive (client)', () => {
 		it('does not reconnect after stop()', withTimers(() => {
 			const { es, stop } = setup();
 			fail(es);
-			stop();
+			stop.stop();
 			expect(vi.getTimerCount()).toBe(0);
 			vi.advanceTimersByTime(120_000);
 			expect(FakeSource.all).toHaveLength(1);
@@ -238,19 +238,20 @@ describe('startLive (client)', () => {
 			expect(win.listeners.size).toBe(0);
 		}));
 
-		it.each(['visibilitychange', 'online'])('retries at once on %s when the connection is closed', (name) =>
+		it.each(['visibilitychange', 'online'])('reconnects at once on %s, even while connected', (name) =>
 			withTimers(() => {
 				const { es } = setup();
 				const src = name === 'online' ? win : doc;
-				src.listeners.get(name)!(); // connected: nothing to do
-				expect(FakeSource.all).toHaveLength(1);
-				fail(es);
 				src.listeners.get(name)!();
 				expect(FakeSource.all).toHaveLength(2);
-				expect(vi.getTimerCount()).toBe(0);
-				fail(FakeSource.all[1]); // backoff was reset
-				vi.advanceTimersByTime(3000);
+				expect(es.closed).toBe(true);
+				fail(FakeSource.all[1]);
+				src.listeners.get(name)!();
 				expect(FakeSource.all).toHaveLength(3);
+				expect(vi.getTimerCount()).toBe(0);
+				fail(FakeSource.all[2]); // backoff was reset
+				vi.advanceTimersByTime(3000);
+				expect(FakeSource.all).toHaveLength(4);
 			})());
 	});
 });
