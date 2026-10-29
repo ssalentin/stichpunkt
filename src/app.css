@@ -749,7 +749,8 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 @media (prefers-reduced-motion: reduce) {
 	.live-changed { animation: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
 }
-.live { white-space: nowrap; }
+.live { white-space: nowrap; font: inherit; color: inherit; background: none; border: 0; padding: 0.15rem 0.25rem; margin: -0.15rem -0.25rem; cursor: pointer; }
+.live:hover, .live:focus-visible { text-decoration: underline; }
 .live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
 .live.on .live-dot { background: var(--hl-string); }
 .toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
@@ -790,7 +791,8 @@ div.embed-missing, div.embed-loop, div.embed-limit { padding: 0.5rem 0.8rem; bor
 @media (prefers-reduced-motion: reduce) {
 	.live-changed { animation: none; background: color-mix(in srgb, var(--accent) 22%, transparent); }
 }
-.live { white-space: nowrap; }
+.live { white-space: nowrap; font: inherit; color: inherit; background: none; border: 0; padding: 0.15rem 0.25rem; margin: -0.15rem -0.25rem; cursor: pointer; }
+.live:hover, .live:focus-visible { text-decoration: underline; }
 .live-dot { display: inline-block; width: 0.5em; height: 0.5em; margin-right: 0.35em; border-radius: 50%; background: var(--muted); vertical-align: 0.05em; }
 .live.on .live-dot { background: var(--hl-string); }
 .toast-action { margin-left: 0.8rem; font: inherit; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }

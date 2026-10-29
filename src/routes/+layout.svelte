@@ -39,6 +39,8 @@
 	const onSearch = $derived(page.url.pathname === '/search');
 	const onHome = $derived(page.url.pathname === '/');
 
+	let retryLive = $state<() => void>(() => {});
+
 	onMount(() => {
 		try {
 			treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
@@ -46,12 +48,13 @@
 		} catch {
 			/* private mode: both columns stay open */
 		}
-		const stopLive = startLive({ onChange: reload, onStatus: (on) => (ui.live = on) });
+		const live = startLive({ onChange: reload, onStatus: (on) => (ui.live = on) });
+		retryLive = live.retry;
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 		const stopInstall = listenForInstall();
 		const stopUpdates = watchForUpdates();
 		return () => {
-			stopLive();
+			live.stop();
 			stopInstall();
 			stopUpdates();
 		};
@@ -215,7 +218,14 @@
 	</aside>
 
 	<main class="main">{#key page.url.pathname}<div class="main-inner">{@render children()}</div>{/key}
-		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()} · <a href={BRAND_REPO} target="_blank" rel="noopener noreferrer">GitHub</a> · <span class="live" class:on={ui.live} title={ui.live ? 'Live updates: connected' : 'Live updates: not connected'}><span class="live-dot" aria-hidden="true"></span>{ui.live ? 'live' : 'offline'}</span></footer>
+		<footer class="build muted" title={APP_COMMIT || 'unknown'}>v{APP_VERSION} · {shortCommit()} · <a href={BRAND_REPO} target="_blank" rel="noopener noreferrer">GitHub</a> · <button
+			type="button"
+			class="live"
+			class:on={ui.live}
+			title={ui.live ? 'Live updates: connected' : 'Live updates: not connected - the page is still readable'}
+			aria-label={ui.live ? 'Live updates: connected' : 'Live updates: not connected - the page is still readable'}
+			onclick={() => retryLive()}
+		><span class="live-dot" aria-hidden="true"></span>{ui.live ? 'live' : 'no live updates'}</button></footer>
 	</main>
 
 	<aside class="right">

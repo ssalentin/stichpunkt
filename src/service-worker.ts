@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { version } from '$app/env';
 import { assets, immutable } from '$app/manifest';
-import { absolutePaths } from './lib/sw-paths';
+import { absolutePaths, redirectedAway } from './lib/sw-paths';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -61,6 +61,11 @@ self.addEventListener('fetch', (event) => {
 		event.respondWith(
 			fetch(req)
 				.then((res) => {
+					// an expired SSO session answers with a redirect to the login page: never cache
+					// that response under this URL and never render it as the page
+					if (redirectedAway(req.url, res.url, res.redirected)) {
+						return req.mode === 'navigate' ? Response.redirect(res.url, 302) : Response.error();
+					}
 					// a 5xx during a restart is not a page: keep the last known copy instead of
 					// caching or showing the error page
 					if (res.status >= 500) throw new Error(`network error: ${res.status}`);
