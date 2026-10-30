@@ -148,3 +148,91 @@ layers:
 		);
 	});
 });
+
+describe('page-level layers', () => {
+	const PAGES_MANIFEST = `---
+manifest: 1
+summary: page layers
+folders:
+  Work: { layer: working }
+layers:
+  pages:
+    MANIFEST: config
+    CONFIG: config
+    Work/Mapped: config
+  config:
+    label: Rules
+viewLabels:
+  all: Alles
+---
+`;
+
+	it('resolves layers.pages first, then frontmatter, then folder', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', PAGES_MANIFEST);
+		await mdwiki.writePage('Work/Implicit', 'no frontmatter\n');
+		await mdwiki.writePage('Work/Explicit', '---\nlayer: reading\n---\npublic now\n');
+		await mdwiki.writePage('Work/Mapped', '---\nlayer: working\n---\nmapped\n');
+
+		expect(mdwiki.layerOf('MANIFEST')).toBe('config');
+		expect(mdwiki.layerOf('CONFIG')).toBe('config');
+		expect(mdwiki.layerOf('Work/Implicit')).toBe('working');
+		expect(mdwiki.layerOf('Work/Explicit')).toBe('reading');
+		// layers.pages wins even over a contradictory frontmatter value
+		expect(mdwiki.layerOf('Work/Mapped')).toBe('config');
+
+		const mapped = mdwiki.listPagesResult('', { includeWorking: true });
+		expect(mapped.pages.find((p) => p.path === 'MANIFEST')?.layer).toBe('config');
+		expect(mapped.pages.find((p) => p.path === 'CONFIG')?.layer).toBe('config');
+		const list = mdwiki.listPagesResult('Work');
+		expect(list.pages.map((p) => [p.path, p.layer])).toEqual([
+			['Work/Explicit', 'reading'],
+			['Work/Mapped', 'config']
+		]);
+		const search = mdwiki.search('public now');
+		expect(search.results.find((h) => h.path === 'Work/Explicit')?.layer).toBe('reading');
+		expect(mdwiki.search('mapped').results.map((h) => h.path)).toEqual(['Work/Mapped']);
+		expect(mdwiki.layers().labels.all).toBe('Alles');
+	});
+
+	it('check_manifest rejects bad page paths, unknown layers and invalid frontmatter layers', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await mdwiki.writePage('MANIFEST', `---
+manifest: 1
+summary: s
+layers:
+  pages:
+    /Leading: config
+    "With.md": working
+---
+`);
+		const paths = await mdwiki.checkManifest();
+		expect(paths.ok).toBe(false);
+		expect(paths.issues).toEqual(
+			expect.arrayContaining([
+				{ path: 'layers.pages./Leading', message: expect.stringContaining('leading slash') },
+				{ path: 'layers.pages.With.md', message: expect.stringContaining('".md"') }
+			])
+		);
+
+		await mdwiki.writePage('Broken/Page', '---\nlayer: secret\n---\ntext\n');
+		const frontmatter = await mdwiki.checkManifest();
+		expect(frontmatter.issues).toEqual(
+			expect.arrayContaining([{ path: 'Broken/Page', message: expect.stringContaining('Frontmatter layer "secret"') }])
+		);
+	});
+
+	it('rejects an unknown value inside layers.pages through the schema', async () => {
+		const { mdwiki } = await makeMdwiki();
+		await expect(
+			mdwiki.writePage('MANIFEST', `---
+manifest: 1
+summary: s
+layers:
+  pages:
+    Notes/Page: secret
+---
+`)
+		).rejects.toMatchObject({ code: 'manifest_invalid' });
+	});
+});

@@ -31,14 +31,23 @@ const layerRules = z.strictObject({
 	checks: z.array(z.enum(['secrets', 'links', 'frontmatter', 'owner', 'stand_age'])).optional()
 });
 
+const layerBlock = z
+	.object({
+		/** exact page path -> layer; wins over frontmatter and folder */
+		pages: z.record(z.string(), z.enum(LAYERS)).optional()
+	})
+	.catchall(layerRules);
+
 /** Strict on every level: an unknown key is invalid, so a typo never silently disables a rule. */
 export const manifestSchema = z.strictObject({
 	manifest: z.literal(1),
 	summary: z.string().min(1).max(2000),
 	pages: pageRules.optional(),
 	folders: z.record(z.string(), folder).optional(),
-	/** per-layer overrides; unset keys inherit the global pages/checks above */
-	layers: z.record(z.string(), layerRules).optional(),
+	/** per-layer overrides plus `pages` (exact page path -> layer) */
+	layers: layerBlock.optional(),
+	/** display label for the third view; default All */
+	viewLabels: z.strictObject({ all: z.string().min(1).max(40).optional() }).optional(),
 	/** display names per actor slug; records keep only the slug */
 	actors: z.record(z.string(), z.strictObject({ name: z.string().min(1) })).optional(),
 	checks: z.array(z.enum(['secrets', 'links', 'frontmatter', 'owner', 'stand_age'])).optional()
@@ -75,8 +84,25 @@ export interface PageWarning {
 	line?: number;
 }
 
-/** A page's layer: the top-level folder's layer, default reading. Root pages are reading. */
-export function layerOfPage(rules: ManifestRules | null, page: string): Layer {
+/** Typed access to one layer's rule block; the reserved `pages` key is not a layer. */
+export function layerBlockOf(rules: ManifestRules | null, layer: Layer) {
+	const value = (rules?.layers as Record<string, unknown> | undefined)?.[layer];
+	return !value || typeof value !== 'object' ? undefined : (value as z.infer<typeof layerRules>);
+}
+
+/**
+ * A page's layer. Precedence: an exact `layers.pages` entry, then the page's own
+ * frontmatter `layer`, then the top-level folder's layer, then reading.
+ */
+export function layerOfPage(
+	rules: ManifestRules | null,
+	page: string,
+	frontmatter?: Record<string, unknown>
+): Layer {
+	const mapped = rules?.layers?.pages?.[page];
+	if (mapped) return mapped;
+	const own = frontmatter?.layer;
+	if (typeof own === 'string' && (LAYERS as readonly string[]).includes(own)) return own as Layer;
 	const top = page.includes('/') ? page.slice(0, page.indexOf('/')) : page;
 	return rules?.folders?.[top]?.layer ?? 'reading';
 }
@@ -87,7 +113,7 @@ export function layerOfPage(rules: ManifestRules | null, page: string): Layer {
  * disables checks for that layer). Layers without a block use the global rules unchanged.
  */
 export function rulesForLayer(rules: ManifestRules, layer: Layer): ManifestRules {
-	const block = rules.layers?.[layer];
+	const block = layerBlockOf(rules, layer);
 	if (!block) return rules;
 	return {
 		...rules,
@@ -96,13 +122,20 @@ export function rulesForLayer(rules: ManifestRules, layer: Layer): ManifestRules
 	};
 }
 
-export function rulesForPage(rules: ManifestRules, page: string): ManifestRules {
-	return rulesForLayer(rules, layerOfPage(rules, page));
+export function rulesForPage(rules: ManifestRules, page: string, frontmatter?: Record<string, unknown>): ManifestRules {
+	return rulesForLayer(rules, layerOfPage(rules, page, frontmatter));
 }
 
 /** Display labels for the three layers; defaults are English. */
 export function layerLabels(rules: ManifestRules | null): Record<Layer, string> {
-	return Object.fromEntries(LAYERS.map((layer) => [layer, rules?.layers?.[layer]?.label ?? DEFAULT_LAYER_LABELS[layer]])) as Record<Layer, string>;
+	return Object.fromEntries(
+		LAYERS.map((layer) => [layer, layerBlockOf(rules, layer)?.label ?? DEFAULT_LAYER_LABELS[layer]])
+	) as Record<Layer, string>;
+}
+
+/** Label for the third sidebar view; default All. */
+export function allViewLabel(rules: ManifestRules | null): string {
+	return rules?.viewLabels?.all ?? 'All';
 }
 
 export function parseManifest(raw: string): ManifestParse {

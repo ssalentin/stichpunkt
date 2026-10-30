@@ -1,4 +1,4 @@
-import { checkPage, folderOwner, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
+import { allViewLabel, checkPage, folderOwner, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
@@ -118,7 +118,7 @@ export class Mdwiki {
 	}
 
 	layerOf(path: string): Layer {
-		return layerOfPage(this.manifest?.rules ?? null, path);
+		return layerOfPage(this.manifest?.rules ?? null, path, this.index.get(path)?.frontmatter);
 	}
 
 	layerLabels() {
@@ -132,7 +132,11 @@ export class Mdwiki {
 	}
 
 	layers() {
-		return { labels: this.layerLabels(), values: [...LAYERS], enabled: this.hasLayerConfig() };
+		return {
+			labels: { ...this.layerLabels(), all: allViewLabel(this.manifest?.rules ?? null) },
+			values: [...LAYERS],
+			enabled: this.hasLayerConfig()
+		};
 	}
 
 	listTags() {
@@ -300,7 +304,15 @@ export class Mdwiki {
 		checkTags(rules.pages?.allowed_tags, 'pages.allowed_tags');
 
 		const usedLayers = new Set(Object.values(rules.folders ?? {}).map((entry) => entry.layer ?? 'reading'));
-		for (const [layer, block] of Object.entries(rules.layers ?? {})) {
+		const mappedPages = rules.layers?.pages ?? {};
+		for (const layer of Object.values(mappedPages)) usedLayers.add(layer);
+		for (const pagePath of Object.keys(mappedPages)) {
+			if (pagePath.startsWith('/') || pagePath.toLowerCase().endsWith('.md') || pagePath === '') {
+				issues.push({ path: `layers.pages.${pagePath}`, message: 'Page paths have no leading slash, no ".md" suffix and must not be empty' });
+			}
+		}
+		for (const [layer, raw] of Object.entries(rules.layers ?? {})) {
+			if (layer === 'pages') continue;
 			if (!(LAYERS as readonly string[]).includes(layer)) {
 				issues.push({ path: `layers.${layer}`, message: `Unknown layer "${layer}" (use ${LAYERS.join(', ')})` });
 				continue;
@@ -308,7 +320,14 @@ export class Mdwiki {
 			if (!usedLayers.has(layer as Layer)) {
 				issues.push({ path: `layers.${layer}`, message: `Layer "${layer}" has no folder in folders` });
 			}
+			const block = raw as { pages?: { allowed_tags?: string[] } };
 			checkTags(block.pages?.allowed_tags, `layers.${layer}.pages.allowed_tags`);
+		}
+		for (const page of this.index.pages.values()) {
+			const raw = page.frontmatter.layer;
+			if (raw !== undefined && !(LAYERS as readonly string[]).includes(String(raw))) {
+				issues.push({ path: page.path, message: `Frontmatter layer "${String(raw)}" is not one of ${LAYERS.join(', ')}` });
+			}
 		}
 		return { ok: issues.length === 0, issues };
 	}
@@ -327,7 +346,7 @@ export class Mdwiki {
 	}
 
 	private warningsFor(page: string, content: string, resolver?: PathResolver, agent?: string): PageWarning[] {
-		const rules = this.manifest ? rulesForPage(this.manifest.rules, page) : null;
+		const rules = this.manifest ? rulesForPage(this.manifest.rules, page, parseFrontmatter(content).data) : null;
 		const warnings = checkPage(rules, page, content, { agent });
 		if (rules?.checks?.includes('links')) {
 			const resolve = resolver ?? new PathResolver(this.index.pages.keys());
