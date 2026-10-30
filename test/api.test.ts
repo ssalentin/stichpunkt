@@ -23,6 +23,7 @@ let evalRoute: typeof import('../src/routes/api/v1/eval/+server');
 let moveRoute: typeof import('../src/routes/api/v1/pages/move/+server');
 let batchRoute: typeof import('../src/routes/api/v1/pages/batch/+server');
 let linksRoute: typeof import('../src/routes/api/v1/links/+server');
+let searchRoute: typeof import('../src/routes/api/v1/search/+server');
 let historyRoute: typeof import('../src/routes/api/v1/history/[...path]/+server');
 let diffRoute: typeof import('../src/routes/api/v1/diff/[...path]/+server');
 let checkManifestRoute: typeof import('../src/routes/api/v1/manifest/check/+server');
@@ -48,6 +49,7 @@ beforeAll(async () => {
 	moveRoute = await import('../src/routes/api/v1/pages/move/+server');
 	batchRoute = await import('../src/routes/api/v1/pages/batch/+server');
 	linksRoute = await import('../src/routes/api/v1/links/+server');
+	searchRoute = await import('../src/routes/api/v1/search/+server');
 	historyRoute = await import('../src/routes/api/v1/history/[...path]/+server');
 	diffRoute = await import('../src/routes/api/v1/diff/[...path]/+server');
 	checkManifestRoute = await import('../src/routes/api/v1/manifest/check/+server');
@@ -435,7 +437,7 @@ describe('MCP', () => {
 		expect(r.hash).toBe(w.hash);
 		expect((await t('append_to_page', { path: 'Mcp/Page', content: 'more' })).hash).not.toBe(w.hash);
 		expect((await t('search', { query: 'mcp-tag' })).results.map((h: { path: string }) => h.path)).toContain('Mcp/Page');
-		expect((await t('list_pages', { prefix: 'Mcp' })).map((p: { path: string }) => p.path)).toEqual(['Mcp/Page']);
+		expect((await t('list_pages', { prefix: 'Mcp' })).pages.map((p: { path: string }) => p.path)).toEqual(['Mcp/Page']);
 		expect((await t('list_tags', {})).find((x: { name: string }) => x.name === 'mcp-tag').count).toBe(1);
 		expect((await t('pages_by_tag', { tag: 'mcp-tag' })).map((p: { path: string }) => p.path)).toEqual(['Mcp/Page']);
 		expect((await t('get_backlinks', { path: 'Server/Alpha' })).map((b: { path: string }) => b.path)).toContain('Mcp/Page');
@@ -695,5 +697,60 @@ describe('embeds (transclusion)', () => {
 		expect(html).toContain('level 3');
 		expect(html).not.toContain('level 4');
 		expect(html).toContain('nested too deeply');
+	});
+});
+
+describe('layer visibility over MCP and REST', () => {
+	it('hides working pages by default, exposes them with include_working, and labels every answer', async () => {
+		const manifest = `---
+manifest: 1
+summary: layers test
+folders:
+  Work: { layer: working }
+  Notes: {}
+layers:
+  working:
+    label: Intern
+---
+`;
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: manifest }), { path: 'MANIFEST' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'quokkamarker public\n' }), { path: 'Notes/Visible' });
+		await call(pagesRoute.PUT, req('PUT', '/x', { content: 'quokkamarker hidden\n' }), { path: 'Work/Draft' });
+
+		const [a, b] = InMemoryTransport.createLinkedPair();
+		await buildMcpServer(mdwiki).connect(b);
+		const client = new Client({ name: 'test', version: '1' });
+		await client.connect(a);
+		const text = (r: unknown) => JSON.parse((r as { content: { text: string }[] }).content[0].text);
+
+		const hidden = text(await client.callTool({ name: 'search', arguments: { query: 'quokkamarker' } }));
+		expect(hidden.results.map((r: { path: string }) => r.path)).toEqual(['Notes/Visible']);
+		const shown = text(await client.callTool({ name: 'search', arguments: { query: 'quokkamarker', include_working: true } }));
+		expect(shown.results.map((r: { path: string }) => r.path).sort()).toEqual(['Notes/Visible', 'Work/Draft']);
+		expect(shown.results.find((r: { path: string }) => r.path === 'Work/Draft').layer).toBe('working');
+		expect(shown.per_page[0]).toHaveProperty('layer');
+
+		const list = text(await client.callTool({ name: 'list_pages', arguments: { prefix: 'Work' } }));
+		expect(list.pages).toEqual([]);
+		expect(list.total).toBe(0);
+		const listAll = text(await client.callTool({ name: 'list_pages', arguments: { prefix: 'Work', include_working: true } }));
+		expect(listAll.pages.map((p: { path: string }) => p.path)).toEqual(['Work/Draft']);
+		expect(listAll.pages[0].layer).toBe('working');
+
+		const read = text(await client.callTool({ name: 'read_page', arguments: { path: 'Work/Draft' } }));
+		expect(read.layer).toBe('working');
+
+		const query = text(await client.callTool({ name: 'query_pages', arguments: { folder: 'Work' } }));
+		expect(query.rows).toEqual([]);
+		const queryAll = text(await client.callTool({ name: 'query_pages', arguments: { folder: 'Work', include_working: true } }));
+		expect(queryAll.rows.map((r: { layer: string }) => r.layer)).toEqual(['working']);
+
+		const restSearch = await (await call(searchRoute.GET, req('GET', '/api/v1/search?q=quokkamarker&include_working=true'))).json();
+		expect(restSearch.results.map((r: { path: string }) => r.path).sort()).toEqual(['Notes/Visible', 'Work/Draft']);
+		const restList = await (await call(listRoute.GET, req('GET', '/api/v1/pages?prefix=Work&include_working=true'))).json();
+		expect(restList.pages.map((p: { path: string }) => p.path)).toEqual(['Work/Draft']);
+		expect(restList.total).toBe(1);
+		const restQuery = await (await call(queryRoute.POST, req('POST', '/api/v1/query', { folder: 'Work', include_working: true }))).json();
+		expect(restQuery.rows.map((r: { layer: string }) => r.layer)).toEqual(['working']);
 	});
 });

@@ -18,6 +18,12 @@ folders:
 actors:
   alice: { name: "Alice A." }
 checks: [secrets, links, frontmatter, owner, stand_age]
+layers:
+  working:
+    label: Working
+    pages:
+      require_agent: true
+    checks: [links]
 ---
 Prose rules for humans and agents.
 ```
@@ -36,7 +42,8 @@ All levels are strict: an unknown key makes the manifest invalid and the previou
 | `pages.stand_field` | frontmatter key holding the page date, default `updated` |
 | `pages.stand_max_age_days` | maximum age in days, default `90` |
 | `pages.require_agent` | when `true`, a write without an actor warns `missing_actor`; default `false` |
-| `folders` | top-level folder → `{owner, template, description}`; `owner` is used by the `owner` check |
+| `folders` | top-level folder → `{owner, template, description, layer}`; `layer` is `reading` (default), `working` or `config` and is inherited by all pages below the folder |
+| `layers` | per layer: `label`, `pages` (same keys as the global block, set keys replace global keys) and `checks` (replaces the global list when set). A layer without a block inherits the global rules |
 | `actors` | actor slug → `{name}`; display names for history and activity. Records store only the slug |
 | `checks` | warnings to run: `secrets`, `links`, `frontmatter`, `owner`, `stand_age` |
 
@@ -97,6 +104,12 @@ A leading label such as `updated:` inside the value is tolerated. Values that do
 ```
 
 It reports strict-schema errors (unknown keys, invalid enum values, wrong types), `allowed_tags` without a matching `tag.define` name from `CONFIG`, folders without any page below them, and folder keys that collide after path normalisation (case, surrounding or repeated slashes). It does not run page warnings. Without a manifest the answer is `{ok: true, issues: []}`.
+
+## Layers
+
+`folders.Notes.layer: working` puts every page below `Notes/` into the working layer; a folder without `layer` is `reading`. Root pages are `reading`. The page's layer selects the effective rules: a key set under `layers.<layer>.pages` replaces the global key, unset keys inherit; `layers.<layer>.checks` replaces the global check list (an empty list disables checks for that layer). `layers.<layer>.label` is the display name (defaults: `Notes`, `Working`, `Config`).
+
+`check_manifest` reports unknown layer keys, layer blocks without any folder, folder collisions and `allowed_tags` without a `tag.define` (global and per layer).
 
 ## Backward compatibility
 

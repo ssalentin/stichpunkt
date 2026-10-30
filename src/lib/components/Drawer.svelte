@@ -3,6 +3,7 @@
 	import Icon from './Icon.svelte';
 	import ThemeSwitch from './ThemeSwitch.svelte';
 	import Tree from './Tree.svelte';
+	import LayerSwitch from './LayerSwitch.svelte';
 	import { ui } from '#lib/ui.svelte';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
@@ -20,12 +21,16 @@
 		recent,
 		tags,
 		current,
+		layerLabels,
+		layersEnabled = false,
 		onclose
 	}: {
 		tree: Node[];
 		recent: { path: string; title: string }[];
 		tags: { name: string }[];
 		current: string;
+		layerLabels: Record<string, string>;
+		layersEnabled?: boolean;
 		/** `navigating` tells the layout that a page change follows, so it must not pop the marker entry */
 		onclose: (opts?: { navigating?: boolean }) => void;
 	} = $props();
@@ -118,6 +123,7 @@
 		</div>
 
 		<div class="drawer-body">
+			<LayerSwitch labels={layerLabels} enabled={layersEnabled} />
 			<h2>Pages</h2>
 			<nav aria-label="Page tree"><Tree nodes={tree} {current} /></nav>
 			<h2>Recent</h2>

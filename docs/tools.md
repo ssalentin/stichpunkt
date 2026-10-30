@@ -166,6 +166,26 @@ GET /api/v1/diff/<path>?since=<id|hash|ISO time>
 
 `since` takes a revision id, a hash (prefix) or a date value (newest revision at or before it); without it the last revision is used. Deleted pages diff against empty content (`current.exists: false`). Very large pages skip the real line diff and return every old line as removed and every new line as added (`truncated: true`).
 
+## Layers in search and page lists
+
+`search`, `list_pages` and `query_pages` accept `include_working` (default `false`); pages of the working layer stay hidden otherwise. An explicit `in:folder` filter is only a filter and does not unlock a layer. Every hit/page/row carries `layer` (`reading`, `working` or `config`).
+
+```jsonc
+// search
+{ "results": [{ "path": "Notes/Page", "layer": "reading", … }],
+  "per_page": [{ "path": "Notes/Page", "count": 2, "layer": "reading" }], … }
+
+// list_pages (limit default 200, offset optional)
+{ "pages": [{ "path": "Notes/Page", "layer": "reading", … }], "total": 42, "truncated": false }
+
+// query_pages rows carry layer as well; the request takes include_working
+POST /api/v1/query  { "folder": "Notes", "include_working": true }
+GET  /api/v1/search?q=…&include_working=true
+GET  /api/v1/pages?prefix=Notes&include_working=true&limit=50&offset=0
+```
+
+Visibility is not access control: `read_page` always works and returns the page's `layer`.
+
 ## Write responses
 
 `write_page`, `write_pages` and `append_to_page` return `actor`, `owner` and `owner_ok` next to `warnings`; in `write_pages` each `written` entry carries them. The values follow the configured folder owner and the optional actor (`agent` argument or `X-Agent` header).

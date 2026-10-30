@@ -344,9 +344,13 @@ export class SpaceIndex {
 		return this.tagPageMap.get(tag);
 	}
 
-	search(query: string, limit = 30, includeHidden = false): SearchResult {
+	search(
+		query: string,
+		limit = 30,
+		opts: { includeHidden?: boolean; includeWorking?: boolean; layerOf?: (path: string) => string; legacyMetaDamping?: boolean } = {}
+	): SearchResult {
 		if (!this.searchIndex) this.searchIndex = buildIndex([]);
-		return runSearch(this.searchIndex, query, { limit, includeHidden, fuzzy: fuzzyFallback(fuzzyScore) });
+		return runSearch(this.searchIndex, query, { limit, ...opts, fuzzy: fuzzyFallback(fuzzyScore) });
 	}
 }
 

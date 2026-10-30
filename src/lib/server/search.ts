@@ -22,6 +22,8 @@ export interface SearchHit {
 	title: string;
 	folder: string;
 	tags: string[];
+	/** visibility layer of the page (reading / working / config) */
+	layer: string;
 	section: { heading: string; slug: string };
 	snippet: string;
 	terms: string[];
@@ -34,6 +36,7 @@ export interface SearchResult {
 	filters: { tags: string[]; folders: string[] };
 	total: number;
 	results: SearchHit[];
+	per_page: { path: string; count: number; layer: string }[];
 	facets: { folders: { name: string; count: number }[]; tags: { name: string; count: number }[] };
 	/** how the query was answered: all terms, some terms, or typo tolerance */
 	mode: 'and' | 'or' | 'fuzzy';
@@ -310,7 +313,6 @@ const B = 0.72;
  * compete with the pages that actually explain a topic. They stay findable, but count half when
  * ranking. `includeHidden` (a caller asking for internal material) lifts the dampening.
  */
-const META_PREFIXES = ['Intern/'];
 const META_WEIGHT = 0.5;
 
 function bm25(tf: number, len: number, avgLen: number, termIdf: number): number {
@@ -326,15 +328,27 @@ function bm25(tf: number, len: number, avgLen: number, termIdf: number): number 
 export function runSearch(
 	index: SearchIndex,
 	query: string,
-	opts: { limit?: number; includeHidden?: boolean; fuzzy?: (needle: string, page: SearchPageInput) => number; now?: number } = {}
+	opts: {
+		limit?: number;
+		includeHidden?: boolean;
+		/** include pages of the working layer (default: hidden) */
+		includeWorking?: boolean;
+		/** layer of a page, used for visibility and the helper-page dampening */
+		layerOf?: (path: string) => string;
+		/** before any layer is configured, keep the historical Intern/ helper dampening */
+		legacyMetaDamping?: boolean;
+		fuzzy?: (needle: string, page: SearchPageInput) => number;
+		now?: number;
+	} = {}
 ): SearchResult {
 	const limit = opts.limit ?? 30;
+	const layerOf = opts.layerOf ?? (() => 'reading');
 	const parsed = parseQuery(query);
 	const filters = { tags: parsed.tags, folders: parsed.folders };
-	const empty: SearchResult = { query, terms: [], filters, total: 0, results: [], facets: { folders: [], tags: [] }, mode: 'and' };
+	const empty: SearchResult = { query, terms: [], filters, total: 0, results: [], per_page: [], facets: { folders: [], tags: [] }, mode: 'and' };
 	if (!parsed.terms.length && !parsed.phrases.length && !parsed.tags.length && !parsed.folders.length) return empty;
 
-	const visible = index.byPage.filter((p) => !p.page.hidden || opts.includeHidden);
+	const visible = index.byPage.filter((p) => (!p.page.hidden || opts.includeHidden) && (opts.includeWorking || layerOf(p.page.path) !== 'working'));
 	const allowed = visible.filter((p) => {
 		const lowPath = p.page.path.toLowerCase();
 		if (parsed.folders.length && !parsed.folders.every((f) => lowPath.startsWith(f.toLowerCase() + '/'))) return false;
@@ -352,18 +366,18 @@ export function runSearch(
 		const hits = allowed
 			.sort((a, b) => b.page.mtimeMs - a.page.mtimeMs)
 			.slice(0, limit)
-			.map((p) => hitOf(p, index, 1, p.sections[0] ?? 0, new Set()));
-		return finish(empty, hits, allowed, query, surfaceTerms, 'and');
+			.map((p) => hitOf(p, index, 1, p.sections[0] ?? 0, new Set(), layerOf));
+		return finish(empty, hits, allowed, query, surfaceTerms, 'and', index, concepts, phrases, layerOf);
 	}
 
 	// phrases are mandatory; everything else is ranked with a coverage penalty, so
 	// pages matching all words still win over pages matching only some of them
-	const scored = dampMeta(rank(index, allowed, concepts, phrases), !!opts.includeHidden);
+	const scored = dampMeta(rank(index, allowed, concepts, phrases), layerOf, !!opts.legacyMetaDamping);
 	let mode: SearchResult['mode'] = 'or';
 	const top = scored[0];
 	if (top && top.covered === concepts.length && top.phrasesOk) mode = 'and';
 	let matched = scored.map((s) => s.page);
-	let hits = scored.slice(0, limit).map((s) => hitOf(s.page, index, s.score, s.section, s.highlight));
+	let hits = scored.slice(0, limit).map((s) => hitOf(s.page, index, s.score, s.section, s.highlight, layerOf));
 
 	if (!hits.length && surfaceTerms.length && opts.fuzzy) {
 		mode = 'fuzzy';
@@ -373,17 +387,17 @@ export function runSearch(
 			.filter((c) => c.score >= 0)
 			.sort((a, b) => b.score - a.score)
 			.slice(0, 3);
-		hits = candidates.map((c) => hitOf(c.p, index, c.score, c.p.sections[0] ?? 0, new Set()));
+		hits = candidates.map((c) => hitOf(c.p, index, c.score, c.p.sections[0] ?? 0, new Set(), layerOf));
 		matched = candidates.map((c) => c.p);
 	}
-	return finish(empty, hits, matched, query, surfaceTerms, mode);
+	return finish(empty, hits, matched, query, surfaceTerms, mode, index, concepts, phrases, layerOf);
 }
 
-/** Down-weights helper pages under `Intern/` and re-sorts, unless the caller asked for internal material. */
-function dampMeta(scored: Scored[], includeHidden: boolean): Scored[] {
-	if (includeHidden) return scored;
+/** Down-weights pages of the working layer (helper/editorial pages) and re-sorts. */
+function dampMeta(scored: Scored[], layerOf: (path: string) => string, legacyMetaDamping: boolean): Scored[] {
 	for (const s of scored) {
-		if (META_PREFIXES.some((prefix) => s.page.page.path.startsWith(prefix))) s.score *= META_WEIGHT;
+		const path = s.page.page.path;
+		if (layerOf(path) === 'working' || (legacyMetaDamping && path.startsWith('Intern/'))) s.score *= META_WEIGHT;
 	}
 	return scored.sort((a, b) => b.score - a.score || b.page.page.mtimeMs - a.page.page.mtimeMs);
 }
@@ -532,7 +546,7 @@ function proximityBoost(tokens: string[], concepts: Concept[]): number {
 	return best > 1 ? (best - 1) * 1.6 : 0;
 }
 
-function hitOf(page: PageIndex['pages'][number], index: SearchIndex, score: number, sectionId: number, highlight: Set<string>): SearchHit {
+function hitOf(page: PageIndex['pages'][number], index: SearchIndex, score: number, sectionId: number, highlight: Set<string>, layerOf: (path: string) => string): SearchHit {
 	const section = index.sections[sectionId];
 	const surfaces = surfaceWords(section?.text ?? page.page.text, highlight);
 	return {
@@ -540,6 +554,7 @@ function hitOf(page: PageIndex['pages'][number], index: SearchIndex, score: numb
 		title: page.page.title,
 		folder: page.page.path.includes('/') ? page.page.path.slice(0, page.page.path.lastIndexOf('/')) : '',
 		tags: page.page.tags.slice(0, 5),
+		layer: layerOf(page.page.path),
 		section: section ? { heading: section.heading, slug: section.slug } : { heading: '', slug: '' },
 		snippet: snippetAround(section?.text ?? page.page.text, surfaces),
 		terms: surfaces,
@@ -598,7 +613,11 @@ function finish(
 	all: PageIndex['pages'],
 	query: string,
 	terms: string[],
-	mode: SearchResult['mode']
+	mode: SearchResult['mode'],
+	index: SearchIndex,
+	concepts: Concept[],
+	phrases: string[][],
+	layerOf: (path: string) => string
 ): SearchResult {
 	const folderCounts = new Map<string, number>();
 	const tagCounts = new Map<string, number>();
@@ -615,11 +634,26 @@ function finish(
 			.sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
 			.slice(0, n)
 			.map(([name, count]) => ({ name, count }));
+	// How many sections of each matching page carry a query term or phrase. Pages are
+	// unique in `results`, so this is the useful per-page count for the UI.
+	const wanted = new Set([...concepts.flatMap((c) => c.parts), ...phrases.flat()]);
+	const per_page = all
+		.map((p) => ({
+			path: p.page.path,
+			layer: layerOf(p.page.path),
+			count: Math.max(1, p.sections.filter((sid) => {
+				const section = index.sections[sid];
+				return section && [...section.tf.keys()].some((term) => wanted.has(term));
+			}).length)
+		}))
+		.filter((entry) => entry.count > 0)
+		.sort((a, b) => b.count - a.count || a.path.localeCompare(b.path));
 	return {
 		...empty,
 		terms: shownTerms,
 		total: all.length,
 		results: hits,
+		per_page,
 		facets: { folders: top(folderCounts, 8), tags: top(tagCounts, 10) },
 		mode
 	};

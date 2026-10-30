@@ -20,6 +20,7 @@ export const load: PageServerLoad = async ({ params }) => {
 		kind: 'page' as const,
 		name,
 		namespace: [],
-		view
+		view,
+		layers: mdwiki.layerLabels()
 	};
 };

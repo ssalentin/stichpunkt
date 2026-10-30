@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { rank, type Titled } from '#lib/fuzzy';
 	import { recentPages, ui } from '#lib/ui.svelte';
+	import { layerInView } from '#lib/layers';
 	import { tick } from 'svelte';
 
 	let q = $state('');
@@ -22,7 +23,8 @@
 		tick().then(() => input?.focus());
 	});
 
-	const matches = $derived(mode === 'switch' ? rank(items, q, recentPages(), 12) : []);
+	const visibleItems = $derived(items.filter((item) => layerInView((item as Titled & { layer?: string }).layer ?? 'reading', ui.layerView)));
+	const matches = $derived(mode === 'switch' ? rank(visibleItems, q, recentPages(), 12) : []);
 	type Row = { label: string; hint?: string; kind: 'page' | 'text'; go: () => void };
 	const rows = $derived.by<Row[]>(() => {
 		const name = q.trim().replace(/^\/+|\/+$/g, '');
