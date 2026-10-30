@@ -33,7 +33,7 @@
 	}
 	const visibleTree = $derived(filterTree((data.tree ?? []) as unknown as TreeNodeLike[]));
 	const visibleRecent = $derived((data.recent ?? []).filter((entry) => layerInView(entry.layer ?? 'reading', ui.layerView)));
-	const layerLabels = $derived(data.layers?.labels ?? { reading: 'Notes', working: 'Working', config: 'Config' });
+	const layerLabels = $derived(data.layers?.labels ?? { reading: 'Notes', working: 'Working', config: 'Config', all: 'All' });
 	const layersEnabled = $derived(data.layers?.enabled ?? false);
 
 	const current = $derived(page.data.name ?? '');

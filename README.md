@@ -252,7 +252,7 @@ See [`docs/tools.md`](docs/tools.md) for every page operation with signature and
 
 The optional `folders.<name>.layer` (`reading`, `working`, `config`, default `reading`) groups pages for readers. With no layer declarations, nothing changes. Pages of the working layer are hidden from `search`, `list_pages` and `query_pages` unless `include_working: true` is passed; an explicit `in:folder` filter is only a filter and does not unlock them. Every result carries its `layer`; `list_pages` returns `{pages,total,truncated}` and accepts `limit` (default 200) / `offset`; `search` adds `per_page: [{path,count,layer}]`.
 
-`layers.<layer>` can override `label`, `pages` (the same page-rule keys as the global block, per key) and `checks` (replacing the global list when set). The web app has a Notes/Working/All switch in the sidebar (labels from the manifest, default English), persisted in `localStorage`; the search page follows it without leaving the page, and working pages show a "draft, not curated" badge. This is visibility, not access control.
+`layers.<layer>` can override `label`, `pages` (the same page-rule keys as the global block, per key) and `checks` (replacing the global list when set). `layers.pages` maps exact page paths to a layer (for root pages such as `MANIFEST`/`CONFIG`); a page's frontmatter `layer` comes next, then the folder layer. `viewLabels.all` renames the third switch (default `All`). The web app has a Notes/Working/All switch in the sidebar (labels from the manifest, default English), persisted in `localStorage`; the search page follows it without leaving the page, and working pages show a "draft, not curated" badge. This is visibility, not access control.
 
 ## Agent manifest
 

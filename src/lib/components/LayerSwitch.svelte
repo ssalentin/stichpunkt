@@ -7,7 +7,7 @@
 	const options: { view: LayerView; label: string }[] = $derived([
 		{ view: 'reading', label: labels.reading ?? 'Notes' },
 		{ view: 'working', label: labels.working ?? 'Working' },
-		{ view: 'all', label: 'All' }
+		{ view: 'all', label: labels.all ?? 'All' }
 	]);
 </script>
 
