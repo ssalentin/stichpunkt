@@ -1,30 +1,44 @@
 import { z } from 'zod';
+import { DEFAULT_LAYER_LABELS, LAYERS, layersInView, type Layer, type LayerView } from '../layers';
 import { frontmatterTags, parseFrontmatter } from './markdown';
 
 /** The special page holding the agent manifest (`MANIFEST.md` in the space root). */
 export const MANIFEST_PAGE = 'MANIFEST';
 
+export { LAYERS, DEFAULT_LAYER_LABELS, layersInView };
+export type { Layer, LayerView };
+
+const pageRules = z.strictObject({
+	required_frontmatter: z.array(z.string()).optional(),
+	allowed_tags: z.array(z.string()).optional(),
+	forbidden_prefixes: z.array(z.string()).optional(),
+	stand_field: z.string().min(1).optional(),
+	stand_max_age_days: z.number().int().positive().optional(),
+	require_agent: z.boolean().optional()
+});
+
 const folder = z.strictObject({
 	owner: z.string().optional(),
 	template: z.string().optional(),
-	description: z.string().optional()
+	description: z.string().optional(),
+	/** defaults to reading; every page below the folder inherits it */
+	layer: z.enum(LAYERS).optional()
+});
+
+const layerRules = z.strictObject({
+	label: z.string().min(1).max(40).optional(),
+	pages: pageRules.optional(),
+	checks: z.array(z.enum(['secrets', 'links', 'frontmatter', 'owner', 'stand_age'])).optional()
 });
 
 /** Strict on every level: an unknown key is invalid, so a typo never silently disables a rule. */
 export const manifestSchema = z.strictObject({
 	manifest: z.literal(1),
 	summary: z.string().min(1).max(2000),
-	pages: z
-		.strictObject({
-			required_frontmatter: z.array(z.string()).optional(),
-			allowed_tags: z.array(z.string()).optional(),
-			forbidden_prefixes: z.array(z.string()).optional(),
-			stand_field: z.string().min(1).optional(),
-			stand_max_age_days: z.number().int().positive().optional(),
-			require_agent: z.boolean().optional()
-		})
-		.optional(),
+	pages: pageRules.optional(),
 	folders: z.record(z.string(), folder).optional(),
+	/** per-layer overrides; unset keys inherit the global pages/checks above */
+	layers: z.record(z.string(), layerRules).optional(),
 	/** display names per actor slug; records keep only the slug */
 	actors: z.record(z.string(), z.strictObject({ name: z.string().min(1) })).optional(),
 	checks: z.array(z.enum(['secrets', 'links', 'frontmatter', 'owner', 'stand_age'])).optional()
@@ -59,6 +73,36 @@ export interface PageWarning {
 		| 'missing_actor';
 	message: string;
 	line?: number;
+}
+
+/** A page's layer: the top-level folder's layer, default reading. Root pages are reading. */
+export function layerOfPage(rules: ManifestRules | null, page: string): Layer {
+	const top = page.includes('/') ? page.slice(0, page.indexOf('/')) : page;
+	return rules?.folders?.[top]?.layer ?? 'reading';
+}
+
+/**
+ * Effective rules for one layer. A key set in `layers.<layer>.pages` replaces the global
+ * key; unset keys inherit. `checks` replaces the global list when present (an empty list
+ * disables checks for that layer). Layers without a block use the global rules unchanged.
+ */
+export function rulesForLayer(rules: ManifestRules, layer: Layer): ManifestRules {
+	const block = rules.layers?.[layer];
+	if (!block) return rules;
+	return {
+		...rules,
+		pages: block.pages ? { ...rules.pages, ...block.pages } : rules.pages,
+		checks: block.checks ?? rules.checks
+	};
+}
+
+export function rulesForPage(rules: ManifestRules, page: string): ManifestRules {
+	return rulesForLayer(rules, layerOfPage(rules, page));
+}
+
+/** Display labels for the three layers; defaults are English. */
+export function layerLabels(rules: ManifestRules | null): Record<Layer, string> {
+	return Object.fromEntries(LAYERS.map((layer) => [layer, rules?.layers?.[layer]?.label ?? DEFAULT_LAYER_LABELS[layer]])) as Record<Layer, string>;
 }
 
 export function parseManifest(raw: string): ManifestParse {

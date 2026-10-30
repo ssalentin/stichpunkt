@@ -1,4 +1,4 @@
-import { checkPage, folderOwner, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, sameActor, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
+import { checkPage, folderOwner, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
@@ -17,6 +17,7 @@ import { changeStats, unifiedDiff } from './diff';
 export interface PageView {
 	path: string;
 	title: string;
+	layer: Layer;
 	html: string;
 	headings: Rendered['headings'];
 	frontmatter: Record<string, unknown>;
@@ -34,6 +35,7 @@ export interface TreeNode {
 	/** filename stub (kept for sorting and folder identity) */
 	stub: string;
 	path: string;
+	layer: Layer;
 	page: boolean;
 	children: TreeNode[];
 }
@@ -92,12 +94,45 @@ export class Mdwiki {
 
 	// ---- queries -------------------------------------------------------------------------
 
-	search(query: string, limit = 30) {
-		return this.index.search(String(query ?? ''), clamp(limit, 1, 200));
+	search(query: string, limit = 30, includeWorking = false) {
+		const layersConfigured = this.hasLayerConfig();
+		return this.index.search(String(query ?? ''), clamp(limit, 1, 200), {
+			includeWorking,
+			layerOf: (path) => this.layerOf(path),
+			legacyMetaDamping: !layersConfigured
+		});
 	}
 
+	/** All pages (UI data); `listPagesResult` applies the tool/API visibility rules. */
 	listPages(prefix = '') {
-		return this.index.list(prefix).map(summary);
+		return this.index.list(prefix).map((p) => summary(p, this.layerOf(p.path)));
+	}
+
+	/** Page list for `list_pages` and REST: working hidden unless asked for, paged. */
+	listPagesResult(prefix = '', opts: { includeWorking?: boolean; limit?: number; offset?: number } = {}) {
+		const all = this.index.list(prefix).filter((p) => opts.includeWorking || this.layerOf(p.path) !== 'working');
+		const offset = Math.max(0, opts.offset ?? 0);
+		const limit = clamp(opts.limit ?? 200, 1, 1000);
+		const pages = all.slice(offset, offset + limit).map((p) => summary(p, this.layerOf(p.path)));
+		return { pages, total: all.length, truncated: offset + pages.length < all.length };
+	}
+
+	layerOf(path: string): Layer {
+		return layerOfPage(this.manifest?.rules ?? null, path);
+	}
+
+	layerLabels() {
+		return labelsForLayers(this.manifest?.rules ?? null);
+	}
+
+	/** True when the manifest actually declares a layer (folder or block). */
+	hasLayerConfig(): boolean {
+		const rules = this.manifest?.rules;
+		return Object.keys(rules?.layers ?? {}).length > 0 || Object.values(rules?.folders ?? {}).some((folder) => folder.layer !== undefined);
+	}
+
+	layers() {
+		return { labels: this.layerLabels(), values: [...LAYERS], enabled: this.hasLayerConfig() };
 	}
 
 	listTags() {
@@ -105,16 +140,19 @@ export class Mdwiki {
 	}
 
 	pagesByTag(tag: string) {
-		return this.index.pagesByTag(tag).map(summary);
+		return this.index.pagesByTag(tag).map((p) => summary(p, this.layerOf(p.path)));
 	}
 
 	/**
 	 * Runs the same declarative query engine as the `pages` block. Agents can try a query here
 	 * (MCP `query_pages` / `POST /api/v1/query`) before writing it into a page.
 	 */
-	queryPages(query: unknown, self = '') {
+	queryPages(query: unknown, self = '', includeWorking = false) {
 		try {
-			return runPagesQuery(this.index, parsePagesQuery(query), self);
+			return runPagesQuery(this.index, parsePagesQuery(query), self, {
+				includeWorking,
+				layerOf: (path) => this.layerOf(path)
+			});
 		} catch (e) {
 			if (e instanceof PagesQueryError) throw new MdwikiError(400, 'bad_query', e.message, { source: e.source });
 			throw e;
@@ -157,6 +195,7 @@ export class Mdwiki {
 		const fm = parseFrontmatter(content);
 		return {
 			path: fileToPage(rel),
+			layer: this.layerOf(fileToPage(rel)),
 			content,
 			frontmatter: fm.data,
 			hash: hashOf(file.data),
@@ -249,12 +288,27 @@ export class Mdwiki {
 			}
 		}
 		const definedTags = new Set(this.index.categories().map((category) => category.tag.toLowerCase()));
-		for (const tag of rules.pages?.allowed_tags ?? []) {
-			const normalized = tag.trim().replace(/^#/, '').toLowerCase();
-			if (!normalized) issues.push({ path: 'pages.allowed_tags', message: 'Tag is empty' });
-			else if (!definedTags.has(normalized)) {
-				issues.push({ path: 'pages.allowed_tags', message: `Tag "#${normalized}" has no tag.define in CONFIG` });
+		const checkTags = (tags: string[] | undefined, path: string) => {
+			for (const tag of tags ?? []) {
+				const normalized = tag.trim().replace(/^#/, '').toLowerCase();
+				if (!normalized) issues.push({ path, message: 'Tag is empty' });
+				else if (!definedTags.has(normalized)) {
+					issues.push({ path, message: `Tag "#${normalized}" has no tag.define in CONFIG` });
+				}
 			}
+		};
+		checkTags(rules.pages?.allowed_tags, 'pages.allowed_tags');
+
+		const usedLayers = new Set(Object.values(rules.folders ?? {}).map((entry) => entry.layer ?? 'reading'));
+		for (const [layer, block] of Object.entries(rules.layers ?? {})) {
+			if (!(LAYERS as readonly string[]).includes(layer)) {
+				issues.push({ path: `layers.${layer}`, message: `Unknown layer "${layer}" (use ${LAYERS.join(', ')})` });
+				continue;
+			}
+			if (!usedLayers.has(layer as Layer)) {
+				issues.push({ path: `layers.${layer}`, message: `Layer "${layer}" has no folder in folders` });
+			}
+			checkTags(block.pages?.allowed_tags, `layers.${layer}.pages.allowed_tags`);
 		}
 		return { ok: issues.length === 0, issues };
 	}
@@ -273,8 +327,9 @@ export class Mdwiki {
 	}
 
 	private warningsFor(page: string, content: string, resolver?: PathResolver, agent?: string): PageWarning[] {
-		const warnings = checkPage(this.manifest?.rules ?? null, page, content, { agent });
-		if (this.manifest?.rules.checks?.includes('links')) {
+		const rules = this.manifest ? rulesForPage(this.manifest.rules, page) : null;
+		const warnings = checkPage(rules, page, content, { agent });
+		if (rules?.checks?.includes('links')) {
 			const resolve = resolver ?? new PathResolver(this.index.pages.keys());
 			for (const link of scanLinks(content)) {
 				if (!link.target || (link.embed && isImageTarget(link.target))) continue;
@@ -814,6 +869,7 @@ export class Mdwiki {
 		return {
 			path: name,
 			title: rec.title,
+			layer: this.layerOf(name),
 			html: entry.rendered.html,
 			headings: entry.rendered.headings,
 			frontmatter: rec.frontmatter,
@@ -938,17 +994,18 @@ export class Mdwiki {
 	// ---- navigation data -------------------------------------------------------------------
 
 	tree(): TreeNode[] {
-		const root: TreeNode = { name: '', stub: '', path: '', page: false, children: [] };
+		const root: TreeNode = { name: '', stub: '', path: '', layer: 'reading', page: false, children: [] };
 		for (const p of this.index.list()) {
 			let node = root;
 			const parts = p.path.split('/');
 			parts.forEach((part, i) => {
 				const path = parts.slice(0, i + 1).join('/');
 				let child = node.children.find((c) => c.stub === part);
-				if (!child) node.children.push((child = { name: part, stub: part, path, page: false, children: [] }));
+				if (!child) node.children.push((child = { name: part, stub: part, path, layer: this.layerOf(path), page: false, children: [] }));
 				if (i === parts.length - 1) {
 					child.page = true;
 					child.name = p.title;
+					child.layer = this.layerOf(p.path);
 				}
 				node = child;
 			});
@@ -962,16 +1019,16 @@ export class Mdwiki {
 	}
 
 	recent(n = 8) {
-		return this.index.recent(n).map(summary);
+		return this.index.recent(n).map((p) => summary(p, this.layerOf(p.path)));
 	}
 
 	titles() {
-		return this.index.list().map((p) => ({ path: p.path, title: p.title, mtimeMs: p.mtimeMs }));
+		return this.index.list().map((p) => ({ path: p.path, title: p.title, layer: this.layerOf(p.path), mtimeMs: p.mtimeMs }));
 	}
 
 	namespace(prefix: string) {
 		const pre = prefix.replace(/\/+$/, '') + '/';
-		return this.index.list(pre).map(summary);
+		return this.index.list(pre).map((p) => summary(p, this.layerOf(p.path)));
 	}
 
 	private pageName(page: string): string {
@@ -1007,8 +1064,8 @@ function conflict(cur: { data: Buffer } | null): MdwikiError {
 	});
 }
 
-function summary(p: PageRec) {
-	return { path: p.path, title: p.title, mtime: new Date(p.mtimeMs).toISOString(), size: p.size, tags: p.tags };
+function summary(p: PageRec, layer: Layer) {
+	return { path: p.path, title: p.title, layer, mtime: new Date(p.mtimeMs).toISOString(), size: p.size, tags: p.tags };
 }
 
 /** A revision by id, hash prefix, or the newest revision at or before an ISO/date value. */

@@ -40,13 +40,13 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 
 	server.registerTool(
 		'search',
-		{ description: 'Full-text search over titles, tags and content. Supports "phrases", #tag and in:folder filters. Returns ranked results with the matching section and snippet, plus folder/tag facets', inputSchema: { query: z.string(), limit: z.number().int().optional() } },
-		({ query, limit }) => run(() => mdwiki.search(query, limit ?? 30))
+		{ description: 'Full-text search over titles, tags and content. Supports "phrases", #tag and in:folder filters. Returns ranked results with the matching section and snippet, layer per hit, per-page counts, plus folder/tag facets. Pages of the working layer are hidden unless include_working is true.', inputSchema: { query: z.string(), limit: z.number().int().optional(), include_working: z.boolean().optional() } },
+		({ query, limit, include_working }) => run(() => mdwiki.search(query, limit ?? 30, include_working ?? false))
 	);
 	server.registerTool(
 		'list_pages',
-		{ description: 'List pages, optionally below a path prefix', inputSchema: { prefix: z.string().optional() } },
-		({ prefix }) => run(() => mdwiki.listPages(prefix ?? ''))
+		{ description: 'List pages, optionally below a path prefix. Returns {pages,total,truncated}; working pages are hidden unless include_working is true.', inputSchema: { prefix: z.string().optional(), include_working: z.boolean().optional(), limit: z.number().int().optional(), offset: z.number().int().optional() } },
+		({ prefix, include_working, limit, offset }) => run(() => mdwiki.listPagesResult(prefix ?? '', { includeWorking: include_working ?? false, limit, offset }))
 	);
 	server.registerTool(
 		'read_page',
@@ -189,10 +189,11 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 				limit: z.number().int().optional(),
 				show: z.enum(['list', 'table', 'count']).optional(),
 				columns: z.array(z.string()).optional(),
-				self: z.string().optional()
+				self: z.string().optional(),
+				include_working: z.boolean().optional()
 			}
 		},
-		({ self, ...query }) => run(() => mdwiki.queryPages(query, self ?? ''))
+		({ self, include_working, ...query }) => run(() => mdwiki.queryPages(query, self ?? '', include_working ?? false))
 	);
 	server.registerTool(
 		'evaluate',

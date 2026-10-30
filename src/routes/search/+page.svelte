@@ -3,6 +3,8 @@
 	import Icon from '#lib/components/Icon.svelte';
 	import { goto } from '$app/navigation';
 	import { rank, type Titled } from '#lib/fuzzy';
+	import { layerInView } from '#lib/layers';
+	import { ui } from '#lib/ui.svelte';
 	import { onMount } from 'svelte';
 
 	let { data } = $props();
@@ -13,10 +15,33 @@
 	let input = $state<HTMLInputElement>();
 	let searches = $state<string[]>([]);
 
-	const result = $derived(data.result);
+	/** Filter the server's all-layer result by the sidebar view; no page roundtrip. */
+	const result = $derived.by(() => {
+		const raw = data.result;
+		if (!raw) return null;
+		const hits = raw.results.filter((hit) => layerInView(hit.layer, ui.layerView));
+		const perPage = raw.per_page.filter((entry) => layerInView(entry.layer, ui.layerView));
+		const folders = new Map<string, number>();
+		const tags = new Map<string, number>();
+		for (const hit of hits) {
+			const folder = hit.path.includes('/') ? hit.path.slice(0, hit.path.indexOf('/')) : '';
+			if (folder) folders.set(folder, (folders.get(folder) ?? 0) + 1);
+			for (const tag of hit.tags) tags.set(tag, (tags.get(tag) ?? 0) + 1);
+		}
+		const top = (map: Map<string, number>, limit: number) =>
+			[...map.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, limit).map(([name, count]) => ({ name, count }));
+		return {
+			...raw,
+			results: hits.slice(0, 50),
+			total: perPage.length,
+			per_page: perPage,
+			facets: { folders: top(folders, 8), tags: top(tags, 10) }
+		};
+	});
 	const terms = $derived(result?.terms ?? []);
+	const recent = $derived(data.recent.filter((entry: { layer?: string }) => layerInView(entry.layer ?? 'reading', ui.layerView)));
 	/** title suggestions while typing: a lexical miss should still lead somewhere */
-	const jumps = $derived(q.trim() ? rank(data.jumpTitles, q, [], 4) : []);
+	const jumps = $derived(q.trim() ? rank(data.jumpTitles.filter((j: { layer?: string }) => layerInView(j.layer ?? 'reading', ui.layerView)), q, [], 4) : []);
 	/** tags the query points at ("#fin") or tags that occur in the corpus */
 	const tagHits = $derived.by(() => {
 		const needle = q.trim().replace(/^#/, '').toLowerCase();
@@ -202,7 +227,7 @@
 		<section class="recent-block">
 			<h2>Recently changed</h2>
 			<ul class="hits">
-				{#each data.recent as r (r.path)}
+				{#each recent as r (r.path)}
 					<li class="hit">
 						<a class="hit-title" href="/{encodeURI(r.path)}"><span class="hit-name">{r.title}</span>{#if folderOf(r.path)}<span class="hit-folder">{folderOf(r.path)}/</span>{/if}</a>
 					</li>

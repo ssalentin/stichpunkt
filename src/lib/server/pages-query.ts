@@ -1,6 +1,7 @@
 import * as yaml from 'js-yaml';
 import MarkdownIt from 'markdown-it';
 import { z } from 'zod';
+import type { Layer } from './agent-manifest';
 import type { PageRec, SpaceIndex } from './space';
 
 /**
@@ -46,6 +47,7 @@ export interface PagesRow {
 	path: string;
 	title: string;
 	folder: string;
+	layer?: Layer;
 	tags: string[];
 	date: string;
 	modified: string;
@@ -150,13 +152,14 @@ function sortValue(p: PageRec, key: string): string | number {
 	}
 }
 
-const toRow = (p: PageRec): PagesRow => {
+const toRow = (p: PageRec, layerOf: (path: string) => Layer): PagesRow => {
 	const frontmatter: Record<string, string> = {};
 	for (const [k, v] of Object.entries(p.frontmatter)) frontmatter[k] = v == null ? '' : String(v);
 	return {
 		path: p.path,
 		title: p.title,
 		folder: folderOf(p.path),
+		layer: layerOf(p.path),
 		tags: p.tags,
 		date: dateOf(p),
 		modified: new Date(p.mtimeMs).toISOString(),
@@ -201,8 +204,9 @@ export function runPagesQuery(
 	index: SpaceIndex,
 	query: PagesQuery,
 	self = '',
-	opts: { candidates?: PageRec[]; exclude?: string } = {}
+	opts: { candidates?: PageRec[]; exclude?: string; includeWorking?: boolean; layerOf?: (path: string) => Layer } = {}
 ): PagesResult {
+	const layerOf = opts.layerOf ?? (() => 'reading' as Layer);
 	const show = query.show ?? 'list';
 	const limit = query.limit ?? DEFAULT_LIMIT;
 	const wanted = query.tag == null ? [] : Array.isArray(query.tag) ? query.tag : [query.tag];
@@ -210,7 +214,7 @@ export function runPagesQuery(
 	const folderFilter = query.folder === 'this' ? folderOf(self) : query.folder;
 	const linksTo = query['links-to'] === 'this' ? self : query['links-to'];
 
-	let pages = (opts.candidates ?? index.list()).filter((p) => !p.hidden);
+	let pages = (opts.candidates ?? index.list()).filter((p) => !p.hidden && (opts.includeWorking || layerOf(p.path) !== 'working'));
 
 	if (wanted.length) pages = pages.filter((p) => tagMatches(p.tags, wanted));
 	if (folderFilter) {
@@ -235,7 +239,7 @@ export function runPagesQuery(
 	});
 
 	const total = pages.length;
-	const rows = show === 'count' ? [] : pages.slice(0, limit).map(toRow);
+	const rows = show === 'count' ? [] : pages.slice(0, limit).map((p) => toRow(p, layerOf));
 	return { query, show, columns: resolveColumns(query, show), rows, total };
 }
 

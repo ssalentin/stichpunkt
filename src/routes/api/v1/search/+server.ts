@@ -6,7 +6,8 @@ import type { RequestHandler } from './$types';
 export const GET: RequestHandler = async ({ url }) => {
 	try {
 		const mdwiki = await getMdwiki();
-		return json(mdwiki.search(url.searchParams.get('q') ?? '', Number(url.searchParams.get('limit') ?? 30)));
+		const includeWorking = ['1', 'true', 'yes'].includes((url.searchParams.get('include_working') ?? '').toLowerCase());
+		return json(mdwiki.search(url.searchParams.get('q') ?? '', Number(url.searchParams.get('limit') ?? 30), includeWorking));
 	} catch (e) {
 		return fail(e);
 	}

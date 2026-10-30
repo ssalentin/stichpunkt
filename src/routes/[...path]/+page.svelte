@@ -59,6 +59,9 @@
 				<span class="page-brand-tag">{BRAND_TAGLINE}</span>
 			</div>
 		{/if}
+		{#if data.view.layer === 'working'}
+			<p class="layer-badge" role="note" aria-label="{data.layers.working} draft, not curated">{data.layers.working} draft, not curated</p>
+		{/if}
 		<div class="md">{@html data.view.html}</div>
 		{#each data.view.tagLists as list (list.tag)}
 			<section class="tagged">

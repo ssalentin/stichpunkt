@@ -9,14 +9,32 @@
 	import Switcher from '#lib/components/Switcher.svelte';
 	import Tree from '#lib/components/Tree.svelte';
 	import Drawer from '#lib/components/Drawer.svelte';
+	import LayerSwitch from '#lib/components/LayerSwitch.svelte';
 	import { APP_VERSION, APP_COMMIT, shortCommit } from '#lib/version';
 	import { startLive } from '#lib/client/live';
-	import { ui, visit } from '#lib/ui.svelte';
+	import { storedLayerView, ui, visit } from '#lib/ui.svelte';
 	import { install, listenForInstall, pwa } from '#lib/client/pwa.svelte';
 	import { dismissUpdate, update, watchForUpdates } from '#lib/client/update.svelte';
+	import { layerInView } from '#lib/layers';
 	import { onMount } from 'svelte';
 
+	type TreeNodeLike = { name: string; stub: string; path: string; layer?: string; page: boolean; children: TreeNodeLike[] };
+
 	let { data, children } = $props();
+
+	function filterTree(nodes: TreeNodeLike[]): TreeNodeLike[] {
+		const out: TreeNodeLike[] = [];
+		for (const node of nodes) {
+			const children = filterTree(node.children ?? []);
+			const pageVisible = node.page && layerInView(node.layer ?? 'reading', ui.layerView);
+			if (pageVisible || children.length) out.push({ ...node, children });
+		}
+		return out;
+	}
+	const visibleTree = $derived(filterTree((data.tree ?? []) as unknown as TreeNodeLike[]));
+	const visibleRecent = $derived((data.recent ?? []).filter((entry) => layerInView(entry.layer ?? 'reading', ui.layerView)));
+	const layerLabels = $derived(data.layers?.labels ?? { reading: 'Notes', working: 'Working', config: 'Config' });
+	const layersEnabled = $derived(data.layers?.enabled ?? false);
 
 	const current = $derived(page.data.name ?? '');
 	const view = $derived(page.data.kind === 'page' ? page.data.view : null);
@@ -42,6 +60,7 @@
 	let retryLive = $state<() => void>(() => {});
 
 	onMount(() => {
+		ui.layerView = storedLayerView();
 		try {
 			treeOpen = localStorage.getItem('stichpunkt.tree') !== '0';
 			panelOpen = localStorage.getItem('stichpunkt.panel') !== '0';
@@ -206,10 +225,11 @@
 	</header>
 
 	<aside class="left">
-		<Tree nodes={data.tree} {current} />
+		<LayerSwitch labels={layerLabels} enabled={layersEnabled} />
+		<Tree nodes={visibleTree} {current} />
 		<h2>Recent</h2>
 		<ul class="recent">
-			{#each data.recent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path} class:live-changed={ui.flash.has(r.path)}>{r.title}</a></li>{/each}
+			{#each visibleRecent as r (r.path)}<li><a href="/{encodeURI(r.path)}" title={r.path} class:live-changed={ui.flash.has(r.path)}>{r.title}</a></li>{/each}
 		</ul>
 		<h2>Tags</h2>
 		<p class="taglist">
@@ -240,7 +260,7 @@
 	</nav>
 
 	{#if ui.drawer}
-		<Drawer tree={data.tree} recent={data.recent} tags={data.tags} {current} onclose={closeDrawer} />
+		<Drawer tree={visibleTree} recent={visibleRecent} tags={data.tags} layerLabels={layerLabels} layersEnabled={layersEnabled} {current} onclose={closeDrawer} />
 	{/if}
 
 	{#if ui.sheet && view}

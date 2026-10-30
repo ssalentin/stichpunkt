@@ -2,8 +2,11 @@
 	import { BRAND, BRAND_TAGLINE, BRAND_DESCRIPTION } from '#lib/brand';
 	import Logo from '#lib/components/Logo.svelte';
 	import { ui } from '#lib/ui.svelte';
+	import { layerInView } from '#lib/layers';
 
 	let { data } = $props();
+
+	const recent = $derived(data.recent.filter((entry: { layer?: string }) => layerInView(entry.layer ?? 'reading', ui.layerView)));
 </script>
 
 <svelte:head>
@@ -28,9 +31,9 @@
 
 	<section class="home-panel">
 		<h2>Recently changed</h2>
-		{#if data.recent.length}
+		{#if recent.length}
 			<ul class="home-list">
-				{#each data.recent as r (r.path)}
+				{#each recent as r (r.path)}
 					<li>
 						<a href="/{encodeURI(r.path)}">{r.title}</a>
 						{#if r.path.includes('/')}<span class="muted">{r.path.slice(0, r.path.lastIndexOf('/'))}/</span>{/if}

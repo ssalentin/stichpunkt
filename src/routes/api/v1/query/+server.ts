@@ -13,9 +13,11 @@ export const POST: RequestHandler = async ({ request }) => {
 		const body = await readJson(request, 64 * 1024);
 		// `self` (optional) resolves "this" in `folder` / `links-to`
 		const self = typeof body.self === 'string' ? body.self : '';
+		const includeWorking = body.include_working === true;
 		const query = { ...body };
 		delete query.self;
-		return json(mdwiki.queryPages(query, self));
+		delete query.include_working;
+		return json(mdwiki.queryPages(query, self, includeWorking));
 	} catch (e) {
 		return fail(e);
 	}

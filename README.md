@@ -214,15 +214,15 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /api/v1/search?q=&limit=` | full-text search |
-| `GET /api/v1/pages?prefix=` | list pages |
+| `GET /api/v1/search?q=&limit=&include_working=` | full-text search (working pages hidden by default) |
+| `GET /api/v1/pages?prefix=&include_working=&limit=&offset=` | `{pages,total,truncated}` (working hidden by default) |
 | `GET /api/v1/pages/<path>` | `{content, frontmatter, hash, mtime}` |
 | `PUT /api/v1/pages/<path>` | `{content, base_hash?}`; stale `base_hash` → **409** with `current`; `base_hash: ""` = must not exist |
 | `POST /api/v1/pages/<path>` | `{content}` append |
 | `DELETE /api/v1/pages/<path>` | delete |
 | `GET /api/v1/tags`, `GET /api/v1/tags/<name>` | tags, pages by tag |
 | `GET /api/v1/backlinks/<path>` | backlinks |
-| `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?}`) |
+| `POST /api/v1/query` | run a `pages` query (`{tag?, folder?, links-to?, sort?, limit?, show?, columns?, self?, include_working?}`) |
 | `PUT /api/v1/attachments/<path>` | raw body upload, any allowed type |
 | `GET /api/v1/manifest` | the [agent manifest](#agent-manifest): `{exists, path, hash, rules, prose}` or `{exists: false}` |
 | `GET /api/v1/manifest/check` | `{ok, issues}`; validates the manifest without writing |
@@ -247,6 +247,12 @@ See [`docs/tools.md`](docs/tools.md) for every page operation with signature and
 - **check_manifest** validates the manifest against the schema and the space (unknown keys/enums, `allowed_tags` without `tag.define`, folders without pages, colliding folder keys) and returns `{ok, issues}`. Read-only.
 - **history** lists the revisions every MCP/REST write keeps under `.history/` (newest first, deletion and move markers included; each record carries version, actor, `actor_source`, tool, byte counts, warning rules and an optional note). **activity** lists revisions across pages with filters. **diff** returns a unified diff against a revision id, a hash prefix or a date. Direct file edits are not versioned. Details: [`docs/tools.md`](docs/tools.md).
 - **check_links** is read-only: `dead` (target does not resolve), `ambiguous` (bare basename with several candidates), `orphans` (no incoming link; root pages are marked), `anchors` (`#Heading` that does not exist). `path` limits the audit to one page or folder; `include_hidden` also checks pages that are hidden from navigation (the repository's hidden prefix, `Library/` by default).
+
+## Layers
+
+The optional `folders.<name>.layer` (`reading`, `working`, `config`, default `reading`) groups pages for readers. With no layer declarations, nothing changes. Pages of the working layer are hidden from `search`, `list_pages` and `query_pages` unless `include_working: true` is passed; an explicit `in:folder` filter is only a filter and does not unlock them. Every result carries its `layer`; `list_pages` returns `{pages,total,truncated}` and accepts `limit` (default 200) / `offset`; `search` adds `per_page: [{path,count,layer}]`.
+
+`layers.<layer>` can override `label`, `pages` (the same page-rule keys as the global block, per key) and `checks` (replacing the global list when set). The web app has a Notes/Working/All switch in the sidebar (labels from the manifest, default English), persisted in `localStorage`; the search page follows it without leaving the page, and working pages show a "draft, not curated" badge. This is visibility, not access control.
 
 ## Agent manifest
 
