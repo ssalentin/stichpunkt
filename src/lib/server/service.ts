@@ -377,6 +377,8 @@ export class Mdwiki {
 			mtimeMs: file.info.mtimeMs,
 			valid: parsed.ok,
 			active: !!this.manifest,
+			/** the whole file, so the console can offer an in-place editor */
+			raw,
 			/** the file on disk is invalid, the last valid rules stay active */
 			stale: !parsed.ok && !!this.manifest,
 			stand: typeof fm.data.Stand === 'string' ? fm.data.Stand : null,

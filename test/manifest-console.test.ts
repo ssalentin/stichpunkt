@@ -83,3 +83,51 @@ describe('manifest as a fixed system page', () => {
 		expect(mdwiki.index.get('Notes/Garten')).toBeTruthy();
 	});
 });
+
+describe('editing the manifest from the console', () => {
+	it('hands the raw file to the editor', async () => {
+		const { mdwiki } = await setup();
+		await mdwiki.writePage('MANIFEST', MANIFEST);
+		const view = await mdwiki.manifestView();
+		if (!view.exists) throw new Error('manifest missing');
+		expect(view.raw).toBe(MANIFEST);
+	});
+
+	it('writes in place against the version that was opened', async () => {
+		const { mdwiki } = await setup();
+		const first = await mdwiki.writePage('MANIFEST', MANIFEST);
+		const view = await mdwiki.manifestView();
+		if (!view.exists) throw new Error('manifest missing');
+		const edited = MANIFEST.replace('Space rules for tests.', 'Space rules, second take.');
+		const res = await mdwiki.writePage('MANIFEST', edited, view.hash, 'web-ui', 'manifest console');
+		expect(res.hash).not.toBe(first.hash);
+		expect((await mdwiki.manifestView()).exists && (await mdwiki.manifestView()).rules?.summary).toBe('Space rules, second take.');
+		// the old version is a conflict, not an overwrite
+		await expect(mdwiki.writePage('MANIFEST', MANIFEST, first.hash, 'web-ui')).rejects.toMatchObject({ status: 409 });
+	});
+
+	it('rejects an invalid edit before it reaches the disk', async () => {
+		const { mdwiki, dir } = await setup();
+		await mdwiki.writePage('MANIFEST', MANIFEST);
+		const view = await mdwiki.manifestView();
+		if (!view.exists) throw new Error('manifest missing');
+		await expect(mdwiki.writePage('MANIFEST', '---\nmanifest: 1\n---\n', view.hash, 'web-ui')).rejects.toMatchObject({
+			status: 400,
+			code: 'manifest_invalid'
+		});
+		expect(fs.readFileSync(path.join(dir, 'MANIFEST.md'), 'utf8')).toBe(MANIFEST);
+	});
+
+	it('keeps the editor reachable while the file on disk is invalid', async () => {
+		const { mdwiki, dir } = await setup();
+		await mdwiki.writePage('MANIFEST', MANIFEST);
+		fs.writeFileSync(path.join(dir, 'MANIFEST.md'), '---\nmanifest: 1\nStand: 2026-01-01\n---\n');
+		const view = await mdwiki.manifestView();
+		if (!view.exists) throw new Error('manifest missing');
+		expect(view.valid).toBe(false);
+		// the raw text is what the editor has to offer for fixing it
+		expect(view.raw).toContain('Stand: 2026-01-01');
+		// and the last valid rules stay visible
+		expect(view.rules?.summary).toBe('Space rules for tests.');
+	});
+});
