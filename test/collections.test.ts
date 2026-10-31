@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { CollectionStore } from '../src/lib/server/collections';
+import { COLLECTIONS_DB_DEFAULT, CollectionStore, collectionsFile } from '../src/lib/server/collections';
 import { parseMarkdownTables, previewTable } from '../src/lib/server/collections-import';
 
 const open: CollectionStore[] = [];
@@ -150,5 +150,14 @@ describe('markdown table import', () => {
 			{ name: 'Autor', type: 'text' },
 			{ name: 'Seiten', type: 'number' }
 		]);
+	});
+});
+
+describe('storage location', () => {
+	it('keeps the database off the mounted space by default', () => {
+		const space = '/mnt/hetzner/knowledgebase';
+		expect(collectionsFile(space, {})).toBe(COLLECTIONS_DB_DEFAULT);
+		expect(collectionsFile(space, {}).startsWith(space)).toBe(false);
+		expect(collectionsFile(space, { COLLECTIONS_DB: '/tmp/x.sqlite' })).toBe('/tmp/x.sqlite');
 	});
 });

@@ -7,10 +7,13 @@ import { MdwikiError } from './errors';
 /**
  * SQLite-backed collections ("databases") behind the app.
  *
- * The database file lives inside the space at `.stichpunkt/collections.sqlite`: one place for
- * content and data, never a second mount. The space directory must be on local disk; SQLite on a
- * network/FUSE mount is not safe. The schema is normalised (collection, property, row, cell,
- * view, revision), values are typed through their property, and every query is parameterised.
+ * The database file is app state, not content: it lives on local disk
+ * (`/var/lib/stichpunkt/collections.sqlite` by default, override with `COLLECTIONS_DB`), never on
+ * the rclone-mounted space. SQLite over FUSE is ~29x slower per write and a dropped mount during a
+ * transaction corrupts the file. The space stays the single content root, so this is not a second
+ * mount — only the index and the rows live next to the service. The schema is normalised
+ * (collection, property, row, cell, view, revision), values are typed through their property, and
+ * every query is parameterised.
  */
 
 export const PROPERTY_TYPES = ['title', 'text', 'number', 'select', 'multi_select', 'date', 'checkbox', 'url', 'email'] as const;
@@ -815,7 +818,9 @@ export class CollectionStore {
 	}
 }
 
-/** Default location: inside the space, so content and data stay together. */
-export function collectionsFile(spaceDir: string, env: NodeJS.ProcessEnv = process.env): string {
-	return env.COLLECTIONS_DB || path.join(spaceDir, '.stichpunkt', 'collections.sqlite');
+/** Local default, deliberately outside the space: see the note at the top of this file. */
+export const COLLECTIONS_DB_DEFAULT = '/var/lib/stichpunkt/collections.sqlite';
+
+export function collectionsFile(_spaceDir: string, env: NodeJS.ProcessEnv = process.env): string {
+	return env.COLLECTIONS_DB || COLLECTIONS_DB_DEFAULT;
 }
