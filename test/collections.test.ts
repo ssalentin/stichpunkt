@@ -120,7 +120,8 @@ describe('collection store', () => {
 		store.updateRow(books.id, row.id, { Titel: 'B' }, 'test', row.updated_at);
 		off();
 		expect(seen).toEqual([books.id]);
-		expect(() => store.updateRow(books.id, row.id, { Titel: 'C' }, 'test', row.updated_at)).toThrowError(/changed since/);
+		// fix the base timestamp: two updates inside the same millisecond would otherwise share it
+		expect(() => store.updateRow(books.id, row.id, { Titel: 'C' }, 'test', '2000-01-01T00:00:00.000Z')).toThrowError(/changed since/);
 	});
 });
 
