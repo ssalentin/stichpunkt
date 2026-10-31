@@ -38,6 +38,18 @@
 
 	const current = $derived(page.data.name ?? '');
 	const view = $derived(page.data.kind === 'page' ? page.data.view : null);
+	const manifest = $derived(data.manifest ?? { exists: false, valid: true, active: false, issues: 0 });
+	const manifestState = $derived(!manifest.exists ? 'missing' : !manifest.valid ? 'bad' : manifest.issues ? 'warn' : 'ok');
+	const manifestTitle = $derived(
+		!manifest.exists
+			? 'No manifest'
+			: !manifest.valid
+				? 'Manifest invalid'
+				: manifest.issues
+					? `Manifest active with ${manifest.issues} issue${manifest.issues === 1 ? '' : 's'}`
+					: 'Manifest active'
+	);
+	const onManifest = $derived(page.url.pathname === '/manifest');
 	let treeOpen = $state(true);
 	let panelOpen = $state(true);
 
@@ -235,6 +247,14 @@
 		<p class="taglist">
 			{#each data.tags as t (t.name)}<a class="tag" href="/tag/{encodeURI(t.name)}">#{t.name}</a>{/each}
 		</p>
+		<h2>System</h2>
+		<ul class="recent">
+			<li>
+				<a href="/manifest" class:active={onManifest} title={manifestTitle} aria-label="Manifest: {manifestTitle}">
+					Manifest <span class="sys-state {manifestState}" aria-hidden="true"></span>
+				</a>
+			</li>
+		</ul>
 	</aside>
 
 	<main class="main">{#key page.url.pathname}<div class="main-inner">{@render children()}</div>{/key}
@@ -260,7 +280,7 @@
 	</nav>
 
 	{#if ui.drawer}
-		<Drawer tree={visibleTree} recent={visibleRecent} tags={data.tags} layerLabels={layerLabels} layersEnabled={layersEnabled} {current} onclose={closeDrawer} />
+		<Drawer tree={visibleTree} recent={visibleRecent} tags={data.tags} layerLabels={layerLabels} layersEnabled={layersEnabled} {current} {manifestState} {manifestTitle} manifestActive={onManifest} onclose={closeDrawer} />
 	{/if}
 
 	{#if ui.sheet && view}

@@ -23,6 +23,9 @@
 		current,
 		layerLabels,
 		layersEnabled = false,
+		manifestState = 'missing',
+		manifestTitle = 'Manifest',
+		manifestActive = false,
 		onclose
 	}: {
 		tree: Node[];
@@ -31,6 +34,9 @@
 		current: string;
 		layerLabels: Record<string, string>;
 		layersEnabled?: boolean;
+		manifestState?: 'ok' | 'warn' | 'bad' | 'missing';
+		manifestTitle?: string;
+		manifestActive?: boolean;
 		/** `navigating` tells the layout that a page change follows, so it must not pop the marker entry */
 		onclose: (opts?: { navigating?: boolean }) => void;
 	} = $props();
@@ -124,6 +130,14 @@
 
 		<div class="drawer-body">
 			<LayerSwitch labels={layerLabels} enabled={layersEnabled} />
+			<h2>System</h2>
+			<ul class="recent">
+				<li>
+					<a href="/manifest" class:active={manifestActive} title={manifestTitle} aria-label="Manifest: {manifestTitle}">
+						Manifest <span class="sys-state {manifestState}" aria-hidden="true"></span>
+					</a>
+				</li>
+			</ul>
 			<h2>Pages</h2>
 			<nav aria-label="Page tree"><Tree nodes={tree} {current} /></nav>
 			<h2>Recent</h2>

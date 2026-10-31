@@ -88,14 +88,14 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	);
 	server.registerTool(
 		'delete_page',
-		{ description: 'Delete a page. The history keeps a tombstone of the last version and its actor.', inputSchema: { path, agent, note } },
+		{ description: 'Delete a page. The history keeps a tombstone of the last version and its actor. MANIFEST is a fixed system page and cannot be deleted.', inputSchema: { path, agent, note } },
 		({ path, agent, note }) => run(() => mdwiki.deletePage(path, agent, note))
 	);
 	server.registerTool(
 		'move_page',
 		{
 			description:
-				'Move or rename a page and rewrite the links that would stop resolving to it. Unique-basename links keep working and stay unchanged; `#Heading`, `|alias` and `![[...]]` survive. Fails with target_exists when the destination exists. dry_run reports the same plan without writing.',
+				'Move or rename a page and rewrite the links that would stop resolving to it. Unique-basename links keep working and stay unchanged; `#Heading`, `|alias` and `![[...]]` survive. Fails with target_exists when the destination exists. MANIFEST is a fixed system page and cannot be moved. dry_run reports the same plan without writing.',
 			inputSchema: {
 				from: path,
 				to: z.string().describe('New page name without ".md", e.g. "Archive/SilverBullet"'),

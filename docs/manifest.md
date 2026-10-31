@@ -119,6 +119,18 @@ A page's layer resolves in this order: `layers.pages.<exact path>` (no leading s
 
 `check_manifest` reports unknown layer keys, layer blocks without any folder, folder collisions and `allowed_tags` without a `tag.define` (global and per layer).
 
+## Fixed place in the app
+
+`MANIFEST` is a system page, not a note. It has a fixed entry under **System** in the sidebar and the drawer, and its own read-only console at `/manifest`:
+
+- status: missing, active, active with warnings, or invalid
+- version hash, last change, `Stand`, page and folder counts
+- folders, page rules, layers, page overrides, checks and actors as tables
+- the prose rules and the frontmatter YAML, folding open on demand
+- a link to the raw page at `/MANIFEST`
+
+The page is excluded from the note tree, the recent list and the quick switcher, so it no longer competes with reading pages. `move_page` and `delete_page` reject it with `409 manifest_fixed`; it is changed in place with `write_page` and the existing validity check. An invalid file on disk is never applied, and the console shows that the last valid version is still active.
+
 ## Backward compatibility
 
 Without `checks`, only the rules that were always active (`required_frontmatter`, `forbidden_prefixes`, `folders`) apply. Without `pages.allowed_tags`, `pages.stand_field` or `pages.stand_max_age_days`, nothing changes; the defaults (`updated`, 90 days) are used only when `stand_age` is enabled. `agent` and `X-Agent` are optional.

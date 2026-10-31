@@ -208,11 +208,12 @@ describe('with a valid MANIFEST', () => {
 		expect(write.warnings).toEqual(dry.warnings);
 	});
 
-	it('delete_page on MANIFEST switches the feature off', async () => {
+	it('delete_page on MANIFEST is refused and the manifest stays active', async () => {
 		const res = await call(pagesRoute.DELETE, req('DELETE', '/x'), { path: 'MANIFEST' });
-		expect(res.status).toBe(200);
-		expect(mdwiki.manifestInstructions()).toBeNull();
-		expect(mdwiki.getManifest()).toEqual({ exists: false });
+		expect(res.status).toBe(409);
+		expect(await res.json()).toMatchObject({ error: 'manifest_fixed' });
+		expect(mdwiki.manifestInstructions()).not.toBeNull();
+		expect(mdwiki.getManifest()).toMatchObject({ exists: true, path: 'MANIFEST' });
 	});
 });
 
