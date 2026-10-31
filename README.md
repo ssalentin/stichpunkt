@@ -44,7 +44,7 @@ A fast, minimal, self-hosted markdown wiki. Plain `.md` files are the database â
 
 *Stichpunkt* is German for "bullet point". It is a small wiki server built around one idea: **your knowledge base is just a directory of markdown files**. The server renders those files to a fast, mobile-first reading UI, keeps an in-memory index for search, tags and backlinks, and exposes the same operations over a REST API and an [MCP](https://modelcontextprotocol.io) server.
 
-The web UI is deliberately **read-only**. Changes are made by agents (or scripts) writing through MCP or the token-protected REST API, so humans get a clean reading experience and agents get a safe, conflict-aware write path. Because the files are plain markdown, you can still edit, sync, grep and back them up with any tool you like.
+The web UI is deliberately **read-only**. Changes are made by agents (or scripts) writing through MCP or the token-protected REST API, so humans get a clean reading experience and agents get a safe, conflict-aware write path. The single exception is the `MANIFEST` editor on `/manifest`, which validates and saves that one system page in place. Because the files are plain markdown, you can still edit, sync, grep and back them up with any tool you like.
 
 ## Demo
 

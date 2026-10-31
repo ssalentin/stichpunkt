@@ -1,7 +1,8 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import { BRAND } from '#lib/brand';
 
-	let { data } = $props();
+	let { data, form } = $props();
 	const m = $derived(data.manifest);
 
 	const state = $derived(!m.exists ? 'missing' : !m.valid ? 'invalid' : m.issues.length ? 'warn' : 'ok');
@@ -37,8 +38,8 @@
 
 	<p class="muted intro">
 		The manifest is this space's rulebook: it defines folders, layers, checks and the summary every agent receives.
-		It is a fixed system page. Agents change it in place through <code>write_page("MANIFEST", …)</code>; it cannot be
-		moved or deleted, and an invalid version is never applied.
+		It is a fixed system page. It cannot be moved or deleted, and an invalid version is never applied.
+		Agents change it in place through <code>write_page("MANIFEST", …)</code>; this console is the same path for people.
 	</p>
 
 	{#if !m.exists}
@@ -172,6 +173,37 @@
 				<pre><code>{m.yaml}</code></pre>
 			</details>
 		{/if}
+
+		<!-- the editor stays available even when the file is invalid: that is when it is needed most -->
+		<section class="block editor">
+				<h2>Edit</h2>
+				{#if form?.error}
+					<div class="notice bad" role="alert">
+						<p>{form.error}</p>
+						{#if form.issues?.length}
+							<ul class="issues">
+								{#each form.issues as issue}<li><code>{issue.path.join('.') || '(root)'}</code> {issue.message}</li>{/each}
+							</ul>
+						{/if}
+					</div>
+				{/if}
+				{#if form?.saved}
+					<p class="notice" role="status">Saved. Version <code>{form.hash?.slice(0, 10)}</code> is active.</p>
+					{#if form.warnings?.length}
+						<ul class="issues">{#each form.warnings as warning}<li>{warning}</li>{/each}</ul>
+					{/if}
+				{/if}
+				<p class="muted">
+					Saving validates the whole file first; an invalid version never reaches the disk. The write is in place and
+					bound to the version you opened, so a concurrent change is refused instead of overwritten.
+				</p>
+				<form method="POST" action="?/save" use:enhance>
+					<input type="hidden" name="base_hash" value={m.hash} />
+					<label class="sr-only" for="manifest-source">Manifest source</label>
+					<textarea id="manifest-source" name="content" rows="24" spellcheck="false">{form?.content ?? m.raw}</textarea>
+					<button type="submit">Save manifest</button>
+				</form>
+		</section>
 	{/if}
 </article>
 
@@ -207,4 +239,28 @@
 	.raw { border-top: 1px solid var(--border); padding-top: 0.8rem; }
 	.raw summary { cursor: pointer; color: var(--muted); }
 	.raw pre { overflow-x: auto; padding: 0.8rem; background: var(--panel); border: 1px solid var(--border); border-radius: 6px; }
+	.editor { border-top: 1px solid var(--border); padding-top: 0.8rem; }
+	.editor textarea {
+		width: 100%;
+		padding: 0.7rem 0.8rem;
+		background: var(--panel);
+		color: var(--fg);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		font: 0.82rem/1.55 var(--mono);
+		resize: vertical;
+	}
+	.editor textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+	.editor button {
+		margin-top: 0.6rem;
+		padding: 0.45rem 0.9rem;
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		background: transparent;
+		color: var(--fg);
+		font: 700 0.82rem var(--sans);
+		cursor: pointer;
+	}
+	.editor button:hover { background: var(--panel); }
+	.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 </style>

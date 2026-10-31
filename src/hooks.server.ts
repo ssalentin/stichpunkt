@@ -30,7 +30,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 			});
 		}
 	} else if (pathname.startsWith('/_ui/') && !['GET', 'HEAD'].includes(event.request.method)) {
-		// the web UI is read only: it exposes no mutating endpoints at all
+		// the web UI is read only: it exposes no mutating endpoints at all. The one deliberate
+		// exception is the MANIFEST editor, a SvelteKit form action on /manifest (not under /_ui/),
+		// which validates before writing and is bound to the version that was opened.
 		return json(405, { error: 'read_only', message: 'The web UI is read only' }, { allow: 'GET, HEAD' });
 	}
 
