@@ -1,11 +1,16 @@
 /**
  * A deployed build replaces the service worker and takes over open pages (`controllerchange`).
  * The running page keeps its data; the reader decides when to reload, so nothing is lost mid-form.
+ *
+ * A worker takeover alone is not proof that this page runs an old build: the browser also
+ * claims pages that already loaded the new build. The hint therefore compares the build of
+ * the page with the build the server reports, and a reload onto the new build stays quiet.
  */
 
 import { APP_COMMIT, APP_VERSION } from '../version';
 
 export const UPDATE_DISMISSED_KEY = 'stichpunkt.update.dismissed';
+export const UPDATE_CHECK_URL = '/_ui/version';
 
 /** Identity of the build this page runs; a dismissal only applies to exactly this build. */
 export function runningBuild(): string {
@@ -20,6 +25,7 @@ export const update = $state({ available: false, dismissed: false });
  */
 export function dismissUpdate() {
 	update.dismissed = true;
+	update.available = false;
 	try {
 		localStorage.setItem(UPDATE_DISMISSED_KEY, runningBuild());
 	} catch {
@@ -35,23 +41,40 @@ function dismissedForRunningBuild(): boolean {
 	}
 }
 
+/**
+ * Compare this page with the running server. The hint appears only for a different build, so
+ * reloading onto the new build clears it instead of bringing it back. A failed request (offline,
+ * a restarting service) leaves the current state untouched.
+ */
+export async function checkForUpdate(): Promise<void> {
+	if (typeof fetch !== 'function') return;
+	try {
+		const res = await fetch(UPDATE_CHECK_URL, { cache: 'no-store', headers: { accept: 'application/json' } });
+		if (!res.ok) return;
+		const body = (await res.json()) as { build?: unknown };
+		if (typeof body.build !== 'string' || body.build === '') return;
+		update.available = body.build !== runningBuild() && !update.dismissed;
+	} catch {
+		/* offline or a restarting server: keep what the page already shows */
+	}
+}
+
 export function watchForUpdates() {
 	if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return () => {};
-	// A dismissal persists for this build across reloads and suppresses every further
-	// controllerchange in this tab until the page runs a different build.
 	update.dismissed = dismissedForRunningBuild();
-	// Only the first controllerchange can be the first install claiming this page. When the page
-	// was opened before any worker existed, the controller is null now but a later deployment
-	// must still be announced, so the flag flips with the first event, not the initial state.
-	let seen = !!navigator.serviceWorker.controller;
-	const onChange = () => {
-		if (!seen) {
-			seen = true;
-			return;
-		}
-		if (update.dismissed) return;
-		update.available = true;
+	const doc = typeof document === 'undefined' ? null : document;
+
+	// A takeover only triggers a check; the server's build decides.
+	const onChange = () => void checkForUpdate();
+	const onVisible = () => {
+		if (typeof document !== 'undefined' && !document.hidden) void checkForUpdate();
 	};
 	navigator.serviceWorker.addEventListener('controllerchange', onChange);
-	return () => navigator.serviceWorker.removeEventListener('controllerchange', onChange);
+	doc?.addEventListener('visibilitychange', onVisible);
+	void checkForUpdate();
+
+	return () => {
+		navigator.serviceWorker.removeEventListener('controllerchange', onChange);
+		doc?.removeEventListener('visibilitychange', onVisible);
+	};
 }
