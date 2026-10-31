@@ -3,10 +3,28 @@
 	import { page as appPage } from '$app/state';
 	import type { CollectionSummary, Property } from '#lib/server/collections';
 
-	let { data } = $props();
+	let { data, form } = $props();
 	const db = $derived(data.collection as CollectionSummary);
 	const fields = $derived(data.collection.properties as Property[]);
 	const visible = $derived(fields.filter((p: Property) => (data.columns as string[]).includes(p.name)));
+
+	const closeHref = $derived(hrefWith({ edit: null, new: null, saved: null }));
+
+	function editHref(rowId: string): string {
+		return hrefWith({ edit: rowId, new: null, saved: null });
+	}
+
+	function fieldValue(prop: Property, row: { values: Record<string, unknown> } | null): string {
+		const value = row?.values[prop.name];
+		if (value === null || value === undefined) return '';
+		if (prop.type === 'date') return String(value).slice(0, 10);
+		return String(value);
+	}
+
+	function listValue(prop: Property, row: { values: Record<string, unknown> } | null): string[] {
+		const value = row?.values[prop.name];
+		return Array.isArray(value) ? value.map(String) : [];
+	}
 
 	function hrefWith(changes: Record<string, string | null>): string {
 		const url = new URL(appPage.url.href);
@@ -62,7 +80,10 @@
 			<p class="eyebrow"><a href="/databases">Databases</a> / {db.properties.length} properties</p>
 			<h1><span class="db-icon" aria-hidden="true">{db.icon ?? '▦'}</span>{db.name}</h1>
 		</div>
-		<p class="db-count">{data.total} {data.total === 1 ? 'row' : 'rows'}</p>
+		<div class="head-actions">
+			{#if data.canEdit}<a class="btn small primary" href={hrefWith({ new: '1', edit: null, saved: null })}>New row</a>{/if}
+			<p class="db-count">{data.total} {data.total === 1 ? 'row' : 'rows'}</p>
+		</div>
 	</header>
 
 	<nav class="views" aria-label="Views">
@@ -71,6 +92,71 @@
 			<a class:active={data.view === view.id} href={viewHref(view.id)}>{view.name}</a>
 		{/each}
 	</nav>
+
+	{#if data.saved}
+		<p class="notice ok" role="status">Saved.</p>
+	{/if}
+	{#if form?.error}
+		<p class="notice bad" role="alert">{form.error}</p>
+	{/if}
+
+	{#if data.canEdit && (data.creating || data.editing)}
+		<section class="editor" aria-label={data.editing ? 'Edit row' : 'New row'}>
+			<h2>{data.editing ? 'Edit row' : 'New row'}</h2>
+			<form method="post" action="?/save">
+				<input type="hidden" name="row_id" value={data.editing?.id ?? ''} />
+				{#if data.editing}<input type="hidden" name="base_updated_at" value={data.editing.updated_at} />{/if}
+				<div class="fields">
+					{#each fields as prop (prop.id)}
+						<label class="field">
+							<span>{prop.name}</span>
+							{#if prop.type === 'checkbox'}
+								<input type="hidden" name="p:{prop.name}" value="0" />
+								<input type="checkbox" name="p:{prop.name}" value="1" checked={data.editing?.values[prop.name] === true} />
+							{:else if prop.type === 'select'}
+								<select name="p:{prop.name}">
+									<option value="">—</option>
+									{#each prop.options ?? [] as option (option)}
+										<option value={option} selected={fieldValue(prop, data.editing) === option}>{option}</option>
+									{/each}
+								</select>
+							{:else if prop.type === 'multi_select'}
+								<span class="multi">
+									{#each prop.options ?? [] as option (option)}
+										<label class="check">
+											<input type="checkbox" name="p:{prop.name}" value={option} checked={listValue(prop, data.editing).includes(option)} />
+											{option}
+										</label>
+									{/each}
+								</span>
+							{:else if prop.type === 'number'}
+								<input type="number" step="any" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
+							{:else if prop.type === 'date'}
+								<input type="date" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
+							{:else if prop.type === 'url'}
+								<input type="url" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
+							{:else if prop.type === 'email'}
+								<input type="email" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
+							{:else}
+								<input type="text" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
+							{/if}
+						</label>
+					{/each}
+				</div>
+				<div class="editor-actions">
+					<button class="btn small primary" type="submit">Save</button>
+					<a class="btn small" href={closeHref}>Cancel</a>
+					{#if data.editing}
+						<button
+							class="btn small danger"
+							type="submit"
+							formaction="?/delete"
+							onclick={() => confirm('Delete this row?')}>Delete</button>
+					{/if}
+				</div>
+			</form>
+		</section>
+	{/if}
 
 	<form class="filters" method="get">
 		{#if data.view}<input type="hidden" name="view" value={data.view} />{/if}
@@ -124,7 +210,10 @@
 								{:else if prop.type === 'email' && value}
 									<a href="mailto:{String(value)}">{String(value)}</a>
 								{:else if prop.type === 'title'}
-									<strong>{cellText(value)}</strong>
+									<span class="title-cell">
+										<strong>{cellText(value)}</strong>
+										{#if data.canEdit}<a class="edit-link" href={editHref(row.id)}>Edit</a>{/if}
+									</span>
 								{:else}
 									{cellText(value)}
 								{/if}
@@ -179,4 +268,25 @@
 	.checkbox .checked, .type-checkbox .checked { color: var(--hl-string); font-weight: 700; }
 	.empty { text-align: center; color: var(--muted); padding: 1.4rem; }
 	.pager { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.8rem; }
+	.head-actions { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.7rem; }
+	.db-count { margin: 0; }
+	.notice { padding: 0.55rem 0.8rem; border-left: 3px solid var(--accent); background: var(--panel); margin: 0 0 0.8rem; }
+	.notice.ok { border-left-color: var(--hl-string); }
+	.notice.bad { border-left-color: var(--danger); }
+	.editor { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.8rem 0.9rem; margin: 0 0 1rem; }
+	.editor h2 { margin: 0 0 0.6rem; font-size: 0.8rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+	.fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.6rem 0.8rem; }
+	.field { display: flex; flex-direction: column; gap: 0.2rem; min-width: 0; }
+	.field > span { font: 700 0.7rem var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+	.field input[type='text'], .field input[type='number'], .field input[type='date'], .field input[type='url'], .field input[type='email'], .field select {
+		width: 100%; min-height: 34px; padding: 0.3rem 0.5rem; color: var(--fg); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: inherit;
+	}
+	.field .multi { display: flex; flex-wrap: wrap; gap: 0.35rem 0.8rem; min-height: 34px; align-items: center; }
+	.field .check { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
+	.field input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent); }
+	.editor-actions { display: flex; gap: 0.4rem; margin-top: 0.8rem; flex-wrap: wrap; }
+	.title-cell { display: inline-flex; align-items: baseline; gap: 0.6rem; }
+	.edit-link { font-size: 0.72rem; color: var(--muted); opacity: 0; }
+	tr:hover .edit-link, .edit-link:focus-visible { opacity: 1; }
+	@media (hover: none) { .edit-link { opacity: 1; } }
 </style>
