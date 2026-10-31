@@ -4,6 +4,8 @@ import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
 import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
+import { renderDatabaseBlock, renderDatabaseError } from './database-block';
+import { getCollections } from './collection-service';
 import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
 import { renderValue } from './expr-render';
 import { valueToJson, valueToText } from './expr-render';
@@ -910,7 +912,7 @@ export class Mdwiki {
 		if (!rec) return null;
 		let entry = this.htmlCache.get(name);
 		const day = todayKey();
-		const dynamic = (e: CacheEntry) => e.rendered.widgets.length > 0 || e.rendered.pagesBlocks.length > 0 || e.rendered.exprs.length > 0 || e.rendered.embeds.length > 0;
+		const dynamic = (e: CacheEntry) => e.rendered.widgets.length > 0 || e.rendered.pagesBlocks.length > 0 || e.rendered.databaseBlocks.length > 0 || e.rendered.exprs.length > 0 || e.rendered.embeds.length > 0;
 		if (
 			!entry ||
 			entry.hash !== rec.hash ||
@@ -933,11 +935,12 @@ export class Mdwiki {
 			// one query budget per page, shared by `pages` blocks and expressions
 			const budget = new QueryBudget();
 			const withPages = this.fillPagesBlocks(withWidgets, rendered.pagesBlocks, name, budget);
-			const withExprs = this.fillExpressions(withPages, rendered.exprs, name, budget);
+			const withDatabases = this.fillDatabaseBlocks(withPages, rendered.databaseBlocks);
+			const withExprs = this.fillExpressions(withDatabases, rendered.exprs, name, budget);
 			const embedded = await this.fillEmbeds(withExprs, rendered.embeds, name, { depth: 0, stack: [name], docId: '', shared: { count: 0, usedClient: new Set() } });
 			const html = embedded.html;
 			const done = { ...rendered, html, usedClient: [...new Set([...rendered.usedClient, ...embedded.usedClient])] };
-			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.exprs.length > 0 || rendered.embeds.length > 0;
+			const dynamic = rendered.widgets.length > 0 || rendered.pagesBlocks.length > 0 || rendered.databaseBlocks.length > 0 || rendered.exprs.length > 0 || rendered.embeds.length > 0;
 			entry = {
 				hash: hashOf(file.data),
 				setVersion: this.index.setVersion,
@@ -1017,6 +1020,7 @@ export class Mdwiki {
 		const budget = new QueryBudget();
 		let inner = this.fillWidgets(rendered.html, rendered.widgets, to);
 		inner = this.fillPagesBlocks(inner, rendered.pagesBlocks, to, budget);
+		inner = this.fillDatabaseBlocks(inner, rendered.databaseBlocks);
 		inner = this.fillExpressions(inner, rendered.exprs, to, budget);
 		const nested = await this.fillEmbeds(inner, rendered.embeds, to, { ...ctx, depth: ctx.depth + 1, stack: [...ctx.stack, to], docId });
 		for (const c of rendered.usedClient) ctx.shared.usedClient.add(c);
@@ -1058,6 +1062,25 @@ export class Mdwiki {
 		return html
 			.replace(/<p><!--pages:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
 			.replace(/<!--pages:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
+	}
+
+	/**
+	 * Fills every `<!--database:n-->` placeholder with a read-only table of that collection. The
+	 * page is a pointer; the rows live in the store and are current on every render. A missing
+	 * collection or a closed store shows the error with the block source instead of a blank page.
+	 */
+	fillDatabaseBlocks(html: string, blocks: { source: string }[]): string {
+		if (!blocks.length) return html;
+		const out = blocks.map((block) => {
+			try {
+				return renderDatabaseBlock(getCollections(), block.source);
+			} catch (e) {
+				return renderDatabaseError(block.source, e instanceof Error ? e.message : 'Could not read this collection');
+			}
+		});
+		return html
+			.replace(/<p><!--database:(\d+)--><\/p>/g, (_m, id) => out[Number(id)] ?? '')
+			.replace(/<!--database:(\d+)-->/g, (_m, id) => out[Number(id)] ?? '');
 	}
 
 	/**

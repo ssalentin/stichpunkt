@@ -96,6 +96,7 @@ export interface RenderEnv {
 	dir?: string;
 	lineOffset?: number;
 	// collected during parse/render
+	databaseBlocks?: DatabaseBlock[];
 	links?: WikiLink[];
 	tags?: Set<string>;
 	headings?: { level: number; text: string; slug: string }[];
@@ -140,6 +141,12 @@ export type Widget =
 /** A fenced `pages` block collected during rendering (validated + run by the service). */
 export interface PagesBlock {
 	/** raw YAML body exactly as written */
+	source: string;
+}
+
+/** A fenced `database` block: the body names the collection to render (read from the store). */
+export interface DatabaseBlock {
+	/** raw body exactly as written */
 	source: string;
 }
 
@@ -446,6 +453,41 @@ function pagesBlockRule(state: any, startLine: number, endLine: number, silent: 
 	return true;
 }
 
+/**
+ * A fenced ```database block. Its body names the collection; the service renders the table from
+ * the store, so the page never duplicates the data. Same token mechanics as `pages`.
+ */
+function databaseBlockRule(state: any, startLine: number, endLine: number, silent: boolean): boolean {
+	let pos = state.bMarks[startLine] + state.tShift[startLine];
+	const max = state.eMarks[startLine];
+	if (state.sCount[startLine] - state.blkIndent >= 4) return false;
+	const line = state.src.slice(pos, max);
+	const open = /^(```+|~~~+)\s*database\s*$/.exec(line);
+	if (!open) return false;
+	const fence = open[1][0];
+	const markerLen = open[1].length;
+	let content = '';
+	let next = startLine;
+	let found = false;
+	for (next = startLine + 1; next < endLine; next++) {
+		pos = state.bMarks[next] + state.tShift[next];
+		const lineText = state.src.slice(pos, state.eMarks[next]);
+		if (lineText.startsWith(fence) && new RegExp(`^${fence}{${markerLen},}\\s*$`).test(lineText)) {
+			found = true;
+			break;
+		}
+		content += lineText + '\n';
+	}
+	if (!found) return false;
+	if (silent) return true;
+	state.line = next + 1;
+	const tok = state.push('database_block', '', 0);
+	tok.block = true;
+	tok.content = content.replace(/\n$/, '');
+	tok.map = [startLine, next + 1];
+	return true;
+}
+
 function resolveUrl(url: string, dir: string): string {
 	if (/^([a-z][a-z0-9+.-]*:|\/\/|#)/i.test(url)) return url;
 	if (url.startsWith('/')) return '/f' + url;
@@ -476,6 +518,9 @@ export function createMarkdown() {
 		alt: ['paragraph', 'reference', 'blockquote', 'list']
 	});
 	md.block.ruler.before('fence', 'pages_block', pagesBlockRule, {
+		alt: ['paragraph', 'reference', 'blockquote', 'list']
+	});
+	md.block.ruler.before('fence', 'database_block', databaseBlockRule, {
 		alt: ['paragraph', 'reference', 'blockquote', 'list']
 	});
 
@@ -621,6 +666,13 @@ export function createMarkdown() {
 		const list = (env.pagesBlocks ??= []);
 		list.push({ source: tokens[idx].content });
 		return `<!--pages:${list.length - 1}-->\n`;
+	};
+
+	// a `database` block: an embed of one collection, filled from the store by the service
+	r.database_block = (tokens, idx, _o, env: any) => {
+		const list = (env.databaseBlocks ??= []);
+		list.push({ source: tokens[idx].content });
+		return `<!--database:${list.length - 1}-->\n`;
 	};
 
 	const defaultLinkOpen = r.link_open ?? ((t, i, o, _e, s) => s.renderToken(t, i, o));
@@ -807,6 +859,7 @@ export interface Rendered {
 	html: string;
 	widgets: Widget[];
 	pagesBlocks: PagesBlock[];
+	databaseBlocks: DatabaseBlock[];
 	exprs: ExprSource[];
 	embeds: EmbedRef[];
 	usedClient: string[];
@@ -819,6 +872,7 @@ export function renderBody(body: string, env: RenderEnv): Rendered {
 		html,
 		widgets: env.widgets ?? [],
 		pagesBlocks: env.pagesBlocks ?? [],
+		databaseBlocks: env.databaseBlocks ?? [],
 		exprs: env.exprs ?? [],
 		embeds: env.embeds ?? [],
 		usedClient: [...(env.usedClient ?? [])],
