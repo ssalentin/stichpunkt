@@ -1,5 +1,5 @@
 import { escapeHtml } from './markdown';
-import type { CollectionStore } from './collections';
+import type { CollectionStore, Property } from './collections';
 
 /**
  * Renders a ```` ```database ```` block on a page.
@@ -23,10 +23,40 @@ export function parseDatabaseBlock(source: string): string {
 	return name;
 }
 
-function cell(value: unknown): string {
+/**
+ * A link target for a cell value, or null. Only http(s) and plain mail addresses become links:
+ * a `javascript:` or `data:` value in a database row must never turn into an href.
+ */
+function linkFor(prop: Property, text: string): string | null {
+	if (prop.type === 'url') {
+		try {
+			const url = new URL(text);
+			return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : null;
+		} catch {
+			return null;
+		}
+	}
+	if (prop.type === 'email') {
+		const value = text.trim();
+		return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value) ? `mailto:${value}` : null;
+	}
+	return null;
+}
+
+/** The visible label: a URL loses its scheme, everything else stays as stored. */
+function labelFor(prop: Property, text: string): string {
+	return prop.type === 'url' ? text.replace(/^https?:\/\//i, '') : text;
+}
+
+function cell(value: unknown, prop: Property): string {
 	if (value === null || value === undefined || value === '') return '<span class="muted">–</span>';
 	if (Array.isArray(value)) return value.map((v) => escapeHtml(String(v))).join(', ');
-	return escapeHtml(String(value));
+	const text = String(value);
+	const href = linkFor(prop, text);
+	if (href) {
+		return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(text)}">${escapeHtml(labelFor(prop, text))}</a>`;
+	}
+	return escapeHtml(text);
 }
 
 export function renderDatabaseBlock(store: CollectionStore, source: string): string {
@@ -39,7 +69,15 @@ export function renderDatabaseBlock(store: CollectionStore, source: string): str
 	const result = store.query(collection.id, { limit: DATABASE_BLOCK_LIMIT });
 	const head = props.map((p) => `<th>${escapeHtml(p.name)}</th>`).join('');
 	const body = result.rows
-		.map((row) => `<tr>${props.map((p) => `<td>${cell((row.values as Record<string, unknown>)[p.name])}</td>`).join('')}</tr>`)
+		.map((row) => {
+			const cells = props.map((p) => {
+				const value = (row.values as Record<string, unknown>)[p.name];
+				const text = value === null || value === undefined || value === '' ? '' : String(value);
+				const title = text ? ` title="${escapeHtml(text)}"` : '';
+				return `<td${title}>${cell(value, p)}</td>`;
+			});
+			return `<tr>${cells.join('')}</tr>`;
+		})
 		.join('');
 	const more = result.total > result.rows.length ? `<p class="muted">${result.rows.length} von ${result.total} Zeilen. Alle Zeilen in der Datenbankansicht.</p>` : '';
 	return [
