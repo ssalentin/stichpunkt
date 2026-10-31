@@ -1,4 +1,4 @@
-import { allViewLabel, checkPage, folderOwner, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
+import { allViewLabel, checkPage, folderOwner, layerBlockOf, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
@@ -332,6 +332,74 @@ export class Mdwiki {
 		return { ok: issues.length === 0, issues };
 	}
 
+	/** State for the fixed sidebar entry; reads the file so it cannot lag behind an external edit. */
+	async manifestStatus() {
+		const file = await this.store.read(pageToFile(MANIFEST_PAGE));
+		if (!file) return { exists: false, valid: true, active: false, issues: 0 };
+		const parsed = parseManifest(file.data.toString('utf8'));
+		if (parsed.ok) return { exists: true, valid: true, active: true, issues: 0 };
+		return { exists: true, valid: false, active: !!this.manifest, issues: parsed.issues.length };
+	}
+
+	/**
+	 * Read-only view model for the `/manifest` console: the state on disk, the active rules and
+	 * every rule as data the page can render. Never throws on an invalid manifest; the disk state
+	 * and the last valid rules are reported separately.
+	 */
+	async manifestView() {
+		const file = await this.store.read(pageToFile(MANIFEST_PAGE));
+		if (!file) return { exists: false as const, path: MANIFEST_PAGE };
+		const raw = file.data.toString('utf8');
+		const fm = parseFrontmatter(raw);
+		const parsed = parseManifest(raw);
+		const check = await this.checkManifest();
+		const rules = parsed.ok ? parsed.value.rules : (this.manifest?.rules ?? null);
+		const rendered = renderBody(fm.body, {
+			dir: '',
+			lineOffset: fm.lineOffset,
+			resolve: (target) => this.index.resolve(target, MANIFEST_PAGE),
+			label: (path) => this.index.displayName(path)
+		});
+		const pagePaths = [...this.index.pages.keys()];
+		const folders = Object.entries(rules?.folders ?? {})
+			.map(([name, folder]) => ({
+				name,
+				owner: folder.owner ?? null,
+				description: folder.description ?? null,
+				layer: folder.layer ?? 'reading',
+				pages: pagePaths.filter((page) => page === name || page.startsWith(name + '/')).length
+			}))
+			.sort((a, b) => a.name.localeCompare(b.name));
+		return {
+			exists: true as const,
+			path: MANIFEST_PAGE,
+			hash: hashOf(file.data),
+			mtimeMs: file.info.mtimeMs,
+			valid: parsed.ok,
+			active: !!this.manifest,
+			/** the file on disk is invalid, the last valid rules stay active */
+			stale: !parsed.ok && !!this.manifest,
+			stand: typeof fm.data.Stand === 'string' ? fm.data.Stand : null,
+			rules,
+			issues: check.issues,
+			proseHtml: rendered.html,
+			yaml: /^---[ \t]*\r?\n([\s\S]*?)\r?\n---/.exec(raw)?.[1] ?? '',
+			labels: labelsForLayers(rules),
+			pagesMap: rules?.layers?.pages ?? {},
+			folders,
+			layers: LAYERS.map((layer) => {
+				const block = layerBlockOf(rules, layer);
+				return {
+					layer,
+					label: block?.label ?? null,
+					checks: block?.checks ?? null,
+					hasOverrides: !!block
+				};
+			}),
+			counts: { pages: pagePaths.length, folders: folders.length }
+		};
+	}
+
 	/** Same warnings as a write would return, without writing. */
 	validatePage(page: unknown, content: unknown, agent?: string): { warnings: PageWarning[] } {
 		if (typeof page !== 'string') throw new MdwikiError(400, 'bad_path', '"path" must be a string');
@@ -415,6 +483,9 @@ export class Mdwiki {
 
 	async deletePage(page: string, agent?: string, note?: string) {
 		const rel = pageToFile(page);
+		if (fileToPage(rel) === MANIFEST_PAGE) {
+			throw new MdwikiError(409, 'manifest_fixed', 'MANIFEST is a fixed system page and cannot be deleted');
+		}
 		return this.store.withLock(rel, async () => {
 			const cur = await this.store.read(rel);
 			if (cur) {
@@ -423,10 +494,6 @@ export class Mdwiki {
 			const removed = await this.store.remove(rel);
 			if (!removed) throw new MdwikiError(404, 'not_found', `Page "${fileToPage(rel)}" does not exist`);
 			this.index.applyDelete(fileToPage(rel));
-			if (fileToPage(rel) === MANIFEST_PAGE) {
-				this.manifest = null;
-				this.manifestInvalid = null;
-			}
 			return { path: fileToPage(rel), deleted: true };
 		});
 	}
@@ -444,6 +511,9 @@ export class Mdwiki {
 		}
 		const from = fileToPage(pageToFile(fromInput));
 		const to = fileToPage(pageToFile(toInput));
+		if (from === MANIFEST_PAGE || to === MANIFEST_PAGE) {
+			throw new MdwikiError(409, 'manifest_fixed', 'MANIFEST is a fixed system page and cannot be moved or renamed');
+		}
 		if (from === to) throw new MdwikiError(400, 'bad_path', '"from" and "to" are the same page');
 		const fromRel = pageToFile(from);
 		const toRel = pageToFile(to);
@@ -1015,6 +1085,8 @@ export class Mdwiki {
 	tree(): TreeNode[] {
 		const root: TreeNode = { name: '', stub: '', path: '', layer: 'reading', page: false, children: [] };
 		for (const p of this.index.list()) {
+			// the manifest is a system page with its own console (/manifest), not part of the note tree
+			if (p.path === MANIFEST_PAGE) continue;
 			let node = root;
 			const parts = p.path.split('/');
 			parts.forEach((part, i) => {
@@ -1038,11 +1110,18 @@ export class Mdwiki {
 	}
 
 	recent(n = 8) {
-		return this.index.recent(n).map((p) => summary(p, this.layerOf(p.path)));
+		return this.index
+			.recent(n + 1)
+			.filter((p) => p.path !== MANIFEST_PAGE)
+			.slice(0, n)
+			.map((p) => summary(p, this.layerOf(p.path)));
 	}
 
 	titles() {
-		return this.index.list().map((p) => ({ path: p.path, title: p.title, layer: this.layerOf(p.path), mtimeMs: p.mtimeMs }));
+		return this.index
+			.list()
+			.filter((p) => p.path !== MANIFEST_PAGE)
+			.map((p) => ({ path: p.path, title: p.title, layer: this.layerOf(p.path), mtimeMs: p.mtimeMs }));
 	}
 
 	namespace(prefix: string) {

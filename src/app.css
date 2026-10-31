@@ -307,6 +307,13 @@ main { grid-area: main; min-width: 0; padding: 1rem 0.9rem 2rem; }
 .tree details[open] > summary::before { transform: rotate(90deg); }
 .tree li > a, .tree summary a { display: flex; align-items: center; min-height: 1.5rem; }
 .tree a.active { color: var(--accent); font-weight: 700; }
+.recent a.active { color: var(--accent); font-weight: 700; }
+/* fixed system entry: a small state dot next to the Manifest link */
+.sys-state { display: inline-block; width: 7px; height: 7px; margin-left: 0.15rem; border-radius: 50%; vertical-align: middle; background: var(--muted); }
+.sys-state.ok { background: var(--hl-string); }
+.sys-state.warn { background: var(--accent); }
+.sys-state.bad { background: var(--danger); }
+.sys-state.missing { background: transparent; border: 1px solid var(--muted); }
 .outline a { color: var(--fg); }
 .taglist { display: flex; flex-wrap: wrap; gap: 0.4rem; }
 .actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }

@@ -4,5 +4,5 @@ import type { LayoutServerLoad } from './$types';
 export const load: LayoutServerLoad = async ({ depends }) => {
 	depends('app:space');
 	const mdwiki = await getMdwiki();
-	return { tree: mdwiki.tree(), recent: mdwiki.recent(8), tags: mdwiki.listTags().slice(0, 40), layers: mdwiki.layers() };
+	return { tree: mdwiki.tree(), recent: mdwiki.recent(8), tags: mdwiki.listTags().slice(0, 40), layers: mdwiki.layers(), manifest: await mdwiki.manifestStatus() };
 };
