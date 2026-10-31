@@ -60,6 +60,28 @@ describe('database block', () => {
 		expect(html).toContain('&lt;script&gt;');
 	});
 
+	it('renders URL and email cells as links and keeps unsafe schemes as text', () => {
+		const { store } = setup();
+		const links = store.create({
+			name: 'Links',
+			properties: [
+				{ name: 'Titel', type: 'title' },
+				{ name: 'URL', type: 'url' },
+				{ name: 'Mail', type: 'email' }
+			]
+		});
+		store.createRow(links.id, { Titel: 'Beispiel', URL: 'https://example.org/pfad?a=1&b=2', Mail: 'a@b.de' });
+		store.createRow(links.id, { Titel: 'Böse', URL: 'javascript:alert(1)' });
+		const html = renderDatabaseBlock(store, 'collection: Links');
+		expect(html).toContain('href="https://example.org/pfad?a=1&amp;b=2"');
+		expect(html).toContain('target="_blank"');
+		expect(html).toContain('rel="noopener noreferrer"');
+		expect(html).toContain('>example.org/pfad?a=1&amp;b=2</a>');
+		expect(html).toContain('href="mailto:a@b.de"');
+		expect(html).toContain('javascript:alert(1)');
+		expect(html).not.toContain('href="javascript');
+	});
+
 	it('turns the fence into a placeholder the service fills', () => {
 		const rendered = renderBody('Vorher\n\n```database\ncollection: Bücher\n```\n\nNachher', { dir: '' });
 		expect(rendered.databaseBlocks).toEqual([{ source: 'collection: Bücher' }]);
