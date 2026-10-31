@@ -132,7 +132,7 @@ A page's layer resolves in this order: `layers.pages.<exact path>` (no leading s
 
 The page is excluded from the note tree, the recent list and the quick switcher, so it no longer competes with reading pages. `move_page` and `delete_page` reject it with `409 manifest_fixed`; it is changed in place with `write_page` and the existing validity check. An invalid file on disk is never applied, and the console shows that the last valid version is still active.
 
-The editor is the one deliberate exception to the read-only web UI: a form action on `/manifest` only, protected by the same Authelia gate and by SvelteKit's origin check for form posts. Every other UI route still refuses writes, and API/MCP writes are unchanged.
+The editor is the one deliberate exception to the read-only web UI: a form action on `/manifest` only, protected by SvelteKit's origin check for form posts. Every other UI route still refuses writes, and API/MCP writes are unchanged. It is off unless the instance sets `MANIFEST_UI_WRITE=1`, and requests that arrive through the token router (`X-Mdwiki-Zone`) are refused even when it is on, so the editor stays a people-only path.
 
 ## Backward compatibility
 
