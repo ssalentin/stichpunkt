@@ -254,6 +254,7 @@
 					Manifest <span class="sys-state {manifestState}" aria-hidden="true"></span>
 				</a>
 			</li>
+			<li><a href="/databases" class:active={page.url.pathname.startsWith('/databases')}>Databases</a></li>
 		</ul>
 	</aside>
 

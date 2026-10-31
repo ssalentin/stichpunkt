@@ -137,6 +137,7 @@
 						Manifest <span class="sys-state {manifestState}" aria-hidden="true"></span>
 					</a>
 				</li>
+				<li><a href="/databases">Databases</a></li>
 			</ul>
 			<h2>Pages</h2>
 			<nav aria-label="Page tree"><Tree nodes={tree} {current} /></nav>
