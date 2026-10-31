@@ -69,7 +69,15 @@ export function renderDatabaseBlock(store: CollectionStore, source: string): str
 	const result = store.query(collection.id, { limit: DATABASE_BLOCK_LIMIT });
 	const head = props.map((p) => `<th>${escapeHtml(p.name)}</th>`).join('');
 	const body = result.rows
-		.map((row) => `<tr>${props.map((p) => `<td>${cell((row.values as Record<string, unknown>)[p.name], p)}</td>`).join('')}</tr>`)
+		.map((row) => {
+			const cells = props.map((p) => {
+				const value = (row.values as Record<string, unknown>)[p.name];
+				const text = value === null || value === undefined || value === '' ? '' : String(value);
+				const title = text ? ` title="${escapeHtml(text)}"` : '';
+				return `<td${title}>${cell(value, p)}</td>`;
+			});
+			return `<tr>${cells.join('')}</tr>`;
+		})
 		.join('');
 	const more = result.total > result.rows.length ? `<p class="muted">${result.rows.length} von ${result.total} Zeilen. Alle Zeilen in der Datenbankansicht.</p>` : '';
 	return [
