@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { collectionsIfOpen } from '#lib/server/collection-service';
 import { getMdwiki } from '#lib/server/service';
 import type { RequestHandler } from './$types';
 
@@ -47,6 +48,13 @@ export const GET: RequestHandler = async ({ request }) => {
 				for (const p of c.paths) pending.add(p);
 				timer ??= setTimeout(flush, COALESCE_MS);
 			});
+			// collections share this stream; their store is only observed when the UI already opened it,
+			// so opening a page never creates a database as a side effect
+			const unsubscribeCollections =
+				collectionsIfOpen()?.subscribe((id) => {
+					pending.add(`__db__/${id}`);
+					timer ??= setTimeout(flush, COALESCE_MS);
+				}) ?? (() => {});
 			const heartbeat = setInterval(() => send(': keep-alive\n\n'), HEARTBEAT_MS);
 
 			let closed = false;
@@ -55,6 +63,7 @@ export const GET: RequestHandler = async ({ request }) => {
 				closed = true;
 				clients--;
 				unsubscribe();
+				unsubscribeCollections();
 				clearInterval(heartbeat);
 				if (timer) clearTimeout(timer);
 				try {

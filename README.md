@@ -83,6 +83,15 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - A fenced ` ```pages ` block with a small YAML body lists pages from the index: filters `tag`, `folder`, `links-to`; `sort` by `title`, `modified`, `date` or any frontmatter key; `show` as `list`, `table` or `count`; `limit` defaults to 50 (max 200).
 - Strictly validated (js-yaml CORE + zod) — no expressions, no regex, nothing executed. The same engine backs the `${...}` expressions, the `query_pages` MCP tool and `POST /api/v1/query`.
 
+**Collections (SQLite databases)**
+
+- Typed tables in SQLite at `<SPACE_DIR>/.stichpunkt/collections.sqlite`, with properties (`title`, `text`, `number`, `select`, `multi_select`, `date`, `checkbox`, `url`, `email`), rows and cells as real records.
+- Notion-style table view at `/databases`: filter bar, click-to-sort columns, saved views, typed cell rendering and live reload over the existing SSE stream.
+- Filtering and sorting run in SQL with bound parameters; `base_updated_at` gives optimistic concurrency; every row change is recorded with an actor.
+- REST API under `/api/v1/databases`; `import/preview` reports the Markdown tables of a page before any migration. See [docs/collections.md](docs/collections.md).
+- Requires the space on local disk — SQLite must not run on the rclone/FUSE mount.
+
+
 **Expressions**
 
 - `${ ausdruck }` is evaluated by a small, own expression language: a Pratt parser and tree-walking evaluator written in TypeScript, with no `eval`, no Lua and no JavaScript runtime.
