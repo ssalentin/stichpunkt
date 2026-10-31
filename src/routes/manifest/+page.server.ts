@@ -1,17 +1,20 @@
 import { fail } from '@sveltejs/kit';
 import { MANIFEST_PAGE } from '#lib/server/agent-manifest';
 import { MdwikiError } from '#lib/server/errors';
+import { manifestWriteEnabled, manifestWriteRefusal } from '#lib/server/manifest-write';
 import { getMdwiki } from '#lib/server/service';
 import type { Actions, PageServerLoad } from './$types';
 
 /** The fixed system console for the space's MANIFEST page. */
 export const load: PageServerLoad = async () => {
 	const mdwiki = await getMdwiki();
-	return { manifest: await mdwiki.manifestView() };
+	return { manifest: await mdwiki.manifestView(), canEdit: manifestWriteEnabled() };
 };
 
 export const actions: Actions = {
 	save: async ({ request }) => {
+		const refusal = manifestWriteRefusal(request.headers);
+		if (refusal) return fail(403, { error: refusal, content: '', issues: [] });
 		const form = await request.formData();
 		const content = form.get('content');
 		const baseHash = form.get('base_hash');

@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { manifestWriteEnabled, manifestWriteRefusal } from '../src/lib/server/manifest-write';
 import { makeMdwiki } from './helpers';
 
 const open: { stop(): void }[] = [];
@@ -129,5 +130,21 @@ describe('editing the manifest from the console', () => {
 		expect(view.raw).toContain('Stand: 2026-01-01');
 		// and the last valid rules stay visible
 		expect(view.rules?.summary).toBe('Space rules for tests.');
+	});
+});
+
+describe('the gate in front of the editor', () => {
+	const headers = (names: string[] = []) => ({ has: (name: string) => names.includes(name) });
+
+	it('is off unless the instance enables it', () => {
+		expect(manifestWriteEnabled({})).toBe(false);
+		expect(manifestWriteEnabled({ MANIFEST_UI_WRITE: 'true' })).toBe(false);
+		expect(manifestWriteEnabled({ MANIFEST_UI_WRITE: '1' })).toBe(true);
+		expect(manifestWriteRefusal(headers(), {})).toMatch(/disabled/);
+	});
+
+	it('refuses machine requests even when it is on', () => {
+		expect(manifestWriteRefusal(headers(['x-mdwiki-zone']), { MANIFEST_UI_WRITE: '1' })).toMatch(/machine/);
+		expect(manifestWriteRefusal(headers(), { MANIFEST_UI_WRITE: '1' })).toBeNull();
 	});
 });

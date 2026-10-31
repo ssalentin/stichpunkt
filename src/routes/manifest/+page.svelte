@@ -175,6 +175,7 @@
 		{/if}
 
 		<!-- the editor stays available even when the file is invalid: that is when it is needed most -->
+		{#if data.canEdit}
 		<section class="block editor">
 				<h2>Edit</h2>
 				{#if form?.error}
@@ -204,6 +205,12 @@
 					<button type="submit">Save manifest</button>
 				</form>
 		</section>
+		{:else}
+			<p class="muted">
+				Editing is disabled on this instance. The API/MCP path (<code>write_page("MANIFEST", …)</code>) still works;
+				an operator enables this editor with <code>MANIFEST_UI_WRITE=1</code>.
+			</p>
+		{/if}
 	{/if}
 </article>
 
