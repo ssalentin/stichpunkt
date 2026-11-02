@@ -83,7 +83,7 @@ export function renderDatabaseBlock(store: CollectionStore, source: string): str
 	return [
 		'<div class="db-block">',
 		`<div class="db-head"><span class="db-name">${escapeHtml(collection.name)}</span>`,
-		`<a class="db-open" href="/databases/${encodeURIComponent(collection.id)}">Öffnen</a></div>`,
+		`<a class="db-open" href="/databases/${encodeURIComponent(collection.id)}">Open</a></div>`,
 		'<div class="db-scroll"><table>',
 		`<thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`,
 		more,
