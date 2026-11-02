@@ -50,6 +50,7 @@
 					: 'Manifest active'
 	);
 	const onManifest = $derived(page.url.pathname === '/manifest');
+	const onActivity = $derived(page.url.pathname === '/activity');
 	let treeOpen = $state(true);
 	let panelOpen = $state(true);
 
@@ -255,6 +256,7 @@
 				</a>
 			</li>
 			<li><a href="/databases" class:active={page.url.pathname.startsWith('/databases')}>Databases</a></li>
+			<li><a href="/activity" class:active={onActivity}>Activity</a></li>
 		</ul>
 	</aside>
 
@@ -281,7 +283,7 @@
 	</nav>
 
 	{#if ui.drawer}
-		<Drawer tree={visibleTree} recent={visibleRecent} tags={data.tags} layerLabels={layerLabels} layersEnabled={layersEnabled} {current} {manifestState} {manifestTitle} manifestActive={onManifest} onclose={closeDrawer} />
+		<Drawer tree={visibleTree} recent={visibleRecent} tags={data.tags} layerLabels={layerLabels} layersEnabled={layersEnabled} {current} {manifestState} {manifestTitle} manifestActive={onManifest} activityActive={onActivity} onclose={closeDrawer} />
 	{/if}
 
 	{#if ui.sheet && view}
