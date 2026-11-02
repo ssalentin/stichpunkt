@@ -26,6 +26,7 @@
 		manifestState = 'missing',
 		manifestTitle = 'Manifest',
 		manifestActive = false,
+		activityActive = false,
 		onclose
 	}: {
 		tree: Node[];
@@ -37,6 +38,7 @@
 		manifestState?: 'ok' | 'warn' | 'bad' | 'missing';
 		manifestTitle?: string;
 		manifestActive?: boolean;
+		activityActive?: boolean;
 		/** `navigating` tells the layout that a page change follows, so it must not pop the marker entry */
 		onclose: (opts?: { navigating?: boolean }) => void;
 	} = $props();
@@ -138,6 +140,7 @@
 					</a>
 				</li>
 				<li><a href="/databases">Databases</a></li>
+				<li><a href="/activity" class:active={activityActive}>Activity</a></li>
 			</ul>
 			<h2>Pages</h2>
 			<nav aria-label="Page tree"><Tree nodes={tree} {current} /></nav>
