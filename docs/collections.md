@@ -64,11 +64,16 @@ GET    /api/v1/databases/:id/views
 POST   /api/v1/databases/:id/views               {id?, name, filters?, sorts?, columns?}
 DELETE /api/v1/databases/:id/views/:viewId
 
+GET    /api/v1/databases/:id/export?format=csv   download all rows; format=csv (default) or json
 POST   /api/v1/databases/import/preview          {path} — report the tables of one page
 POST   /api/v1/databases/import                  {path, table, name?, columns?, dry_run?}
 ```
 
 `base_updated_at` makes an update optimistic: a stale timestamp returns `409` instead of overwriting.
+`export` returns a read-only snapshot: CSV uses the property names as header and quotes on comma,
+quote or line break; JSON keeps property types, options and row ids. An export can paginate past the
+500-row query limit because the service pages internally.
+
 
 ## Markdown migration
 
