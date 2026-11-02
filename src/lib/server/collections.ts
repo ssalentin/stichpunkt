@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { MdwikiError } from './errors';
+import { runMigrations } from './migrations';
 
 /**
  * SQLite-backed collections ("databases") behind the app.
@@ -103,63 +104,6 @@ export class CollectionError extends MdwikiError {
 	}
 }
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS collection (
-	id TEXT PRIMARY KEY,
-	name TEXT NOT NULL,
-	icon TEXT,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS collection_name ON collection(name COLLATE NOCASE);
-CREATE TABLE IF NOT EXISTS property (
-	id TEXT PRIMARY KEY,
-	collection_id TEXT NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
-	name TEXT NOT NULL,
-	type TEXT NOT NULL,
-	options TEXT,
-	position INTEGER NOT NULL,
-	UNIQUE (collection_id, name)
-);
-CREATE INDEX IF NOT EXISTS property_collection ON property(collection_id);
-CREATE TABLE IF NOT EXISTS "row" (
-	id TEXT PRIMARY KEY,
-	collection_id TEXT NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
-	created_at TEXT NOT NULL,
-	updated_at TEXT NOT NULL,
-	position INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS row_collection ON "row"(collection_id);
-CREATE TABLE IF NOT EXISTS cell (
-	row_id TEXT NOT NULL REFERENCES "row"(id) ON DELETE CASCADE,
-	property_id TEXT NOT NULL REFERENCES property(id) ON DELETE CASCADE,
-	value TEXT NOT NULL,
-	PRIMARY KEY (row_id, property_id)
-);
-CREATE INDEX IF NOT EXISTS cell_property ON cell(property_id);
-CREATE TABLE IF NOT EXISTS "view" (
-	id TEXT PRIMARY KEY,
-	collection_id TEXT NOT NULL REFERENCES collection(id) ON DELETE CASCADE,
-	name TEXT NOT NULL,
-	filters TEXT NOT NULL DEFAULT '[]',
-	sorts TEXT NOT NULL DEFAULT '[]',
-	columns TEXT,
-	position INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS view_collection ON "view"(collection_id);
-CREATE TABLE IF NOT EXISTS revision (
-	id INTEGER PRIMARY KEY AUTOINCREMENT,
-	collection_id TEXT NOT NULL,
-	row_id TEXT,
-	at TEXT NOT NULL,
-	actor TEXT NOT NULL,
-	op TEXT NOT NULL,
-	before TEXT,
-	after TEXT
-);
-CREATE INDEX IF NOT EXISTS revision_collection ON revision(collection_id, id);
-`;
-
 const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 const MAX_FILTERS = 20;
@@ -243,14 +187,25 @@ export class CollectionStore {
 		this.db = db;
 	}
 
-	/** Opens (and creates) the store; `:memory:` is supported for tests. */
+	/**
+	 * Opens (and creates) the store; `:memory:` is supported for tests.
+	 *
+	 * Schema migrations run here, before the store is handed out. A failing migration closes the
+	 * handle and throws, so the process does not serve against a half-migrated database.
+	 */
 	static open(file: string): CollectionStore {
 		if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
+		const exists = file !== ':memory:' && fs.existsSync(file) && fs.statSync(file).size > 0;
 		const db = new DatabaseSync(file);
-		db.exec('PRAGMA journal_mode = WAL;');
-		db.exec('PRAGMA foreign_keys = ON;');
-		db.exec('PRAGMA busy_timeout = 5000;');
-		db.exec(SCHEMA);
+		try {
+			db.exec('PRAGMA journal_mode = WAL;');
+			db.exec('PRAGMA foreign_keys = ON;');
+			db.exec('PRAGMA busy_timeout = 5000;');
+			runMigrations(db, file, { backup: exists });
+		} catch (e) {
+			db.close();
+			throw e;
+		}
 		return new CollectionStore(file, db);
 	}
 
@@ -819,8 +774,4 @@ export class CollectionStore {
 }
 
 /** Local default, deliberately outside the space: see the note at the top of this file. */
-export const COLLECTIONS_DB_DEFAULT = '/var/lib/stichpunkt/collections.sqlite';
-
-export function collectionsFile(_spaceDir: string, env: NodeJS.ProcessEnv = process.env): string {
-	return env.COLLECTIONS_DB || COLLECTIONS_DB_DEFAULT;
-}
+export { COLLECTIONS_DB_DEFAULT, collectionsFile } from './collections-path';

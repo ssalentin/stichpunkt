@@ -21,6 +21,37 @@ below), and the directory is covered by the 03:30 job as `state/stichpunkt/`.
 
 Backups must copy the database through SQLite, not as a raw file: `sqlite3 collections.sqlite ".backup '/path/collections.sqlite'"` (or `VACUUM INTO`). Copying the main file while WAL is active can produce a torn snapshot. Back up after the 03:30 job or in the same window, and include the file in the restore drill.
 
+## Schema migrations
+
+The schema has a version, currently **1**, stored in `PRAGMA user_version`. The ordered migration list
+lives in `src/lib/server/migrations.ts`; step 1 is the baseline that also adopts databases created
+before migrations existed (its `CREATE TABLE IF NOT EXISTS` statements are what the app used to run
+on every start).
+
+- The runner executes on the first `CollectionStore.open`, i.e. on boot, before the store is used.
+- All pending steps of one run are committed in a single transaction together with their
+  `user_version` bump. A failing step rolls back the whole run and the previous schema and data stay
+  intact; the process fails instead of serving against a half-migrated file.
+- Runs are idempotent: a database already at the current version applies nothing.
+- Applied steps are logged as `[collections] applied v1 baseline`.
+- Before the first write of a run, the database is copied through the `sqlite3` CLI (`.backup`) to
+  `collections.sqlite.pre-migration-v<from>-<timestamp>.bak` next to the database. A new file has
+  nothing to protect and gets no backup. A missing `sqlite3` binary aborts the migration before any
+  write; the container image installs it.
+- A database newer than the running build is refused instead of downgraded.
+
+Inspect or run migrations while the service is stopped:
+
+```
+npm run migrate -- --dry-run          # report pending steps, write nothing
+npm run migrate                       # back up, then migrate
+npm run migrate -- --db /path/to/collections.sqlite
+```
+
+Add a schema change by appending a step with the next version and a short name. Never edit a step
+that has shipped: production databases have already recorded its version.
+
+
 ## Model
 
 | Table | Holds |

@@ -1,11 +1,21 @@
 import type { Handle } from '@sveltejs/kit/hooks';
 import { checkBearer, configuredToken, isProtectedPath } from '#lib/server/auth';
+import { getCollections } from '#lib/server/collection-service';
 
 /** Set by the reverse proxy on the token router only, e.g. `X-Mdwiki-Zone: machine`. */
 export const MACHINE_ZONE_HEADER = 'x-mdwiki-zone';
 
 // report a rejected token at startup, not only on the first request
 configuredToken();
+
+/**
+ * Runs once before the first request: open collections.sqlite and apply pending schema migrations
+ * now. A failing migration throws here and the server refuses to start, instead of failing on the
+ * first database request.
+ */
+export const init = (): void => {
+	getCollections();
+};
 
 const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
 	new Response(JSON.stringify(body), {

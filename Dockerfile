@@ -17,6 +17,7 @@ ENV NODE_ENV=production \
     SPACE_FALLBACK_DIR=/app/examples/knowledge \
     BODY_SIZE_LIMIT=25M
 WORKDIR /app
+RUN apk add --no-cache sqlite
 COPY --from=build /app/build ./build
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/package.json ./
