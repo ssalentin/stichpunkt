@@ -70,7 +70,28 @@
 
 	const first = $derived(data.total === 0 ? 0 : data.offset + 1);
 	const last = $derived(Math.min(data.offset + data.rows.length, data.total));
+
+	// the title property labels a card; a view may hide it, so fall back to the first visible column
+	const titleProp = $derived(visible.find((p: Property) => p.type === 'title') ?? visible[0]);
+	const cardFields = $derived(visible.filter((p: Property) => p.id !== titleProp?.id));
+	const currentSort = $derived(data.sorts[0] ? `${data.sorts[0].property}:${data.sorts[0].direction}` : '');
 </script>
+
+{#snippet cell(prop: Property, value: unknown)}
+	{#if prop.type === 'checkbox'}
+		<span class:checked={value === true}>{value === true ? '✓' : '—'}</span>
+	{:else if prop.type === 'select' && value}
+		<span class="chip">{cellText(value)}</span>
+	{:else if prop.type === 'multi_select' && Array.isArray(value) && value.length}
+		<span class="chips">{#each value as v (v)}<span class="chip">{v}</span>{/each}</span>
+	{:else if prop.type === 'url' && value}
+		<a href={String(value)} target="_blank" rel="noopener noreferrer">{String(value).replace(/^https?:\/\//, '')}</a>
+	{:else if prop.type === 'email' && value}
+		<a href="mailto:{String(value)}">{String(value)}</a>
+	{:else}
+		{cellText(value)}
+	{/if}
+{/snippet}
 
 <svelte:head><title>{db.name} · {BRAND}</title></svelte:head>
 
@@ -160,6 +181,7 @@
 
 	<form class="filters" method="get">
 		{#if data.view}<input type="hidden" name="view" value={data.view} />{/if}
+		{#if currentSort}<input type="hidden" name="sort" value={currentSort} />{/if}
 		{#each [0, 1, 2] as i}
 			<div class="filter-row">
 				<select name="p{i}" aria-label="Filter property {i + 1}">
@@ -198,26 +220,18 @@
 					<tr>
 						{#each visible as prop (prop.id)}
 							{@const value = row.values[prop.name]}
-							<td class="cell type-{prop.type}">
-								{#if prop.type === 'checkbox'}
-									<span class:checked={value === true}>{value === true ? '✓' : '—'}</span>
-								{:else if prop.type === 'select' && value}
-									<span class="chip">{cellText(value)}</span>
-								{:else if prop.type === 'multi_select' && Array.isArray(value) && value.length}
-									<span class="chips">{#each value as v (v)}<span class="chip">{v}</span>{/each}</span>
-								{:else if prop.type === 'url' && value}
-									<a href={String(value)} target="_blank" rel="noopener noreferrer">{String(value).replace(/^https?:\/\//, '')}</a>
-								{:else if prop.type === 'email' && value}
-									<a href="mailto:{String(value)}">{String(value)}</a>
-								{:else if prop.type === 'title'}
+							{#if prop.id === titleProp?.id}
+								<th scope="row" class="cell type-{prop.type}">
 									<span class="title-cell">
 										<strong>{cellText(value)}</strong>
 										{#if data.canEdit}<a class="edit-link" href={editHref(row.id)}>Edit</a>{/if}
 									</span>
-								{:else}
-									{cellText(value)}
-								{/if}
-							</td>
+								</th>
+							{:else}
+								<td class="cell type-{prop.type}">
+									{@render cell(prop, value)}
+								</td>
+							{/if}
 						{/each}
 					</tr>
 				{:else}
@@ -226,6 +240,45 @@
 			</tbody>
 		</table>
 	</div>
+
+	<form class="card-sort" method="get" aria-label="Sort rows">
+		{#if data.view}<input type="hidden" name="view" value={data.view} />{/if}
+		{#each data.filters as filter, i (i)}
+			<input type="hidden" name="p{i}" value={filter.property} />
+			<input type="hidden" name="o{i}" value={filter.op} />
+			<input type="hidden" name="v{i}" value={String(filter.value ?? '')} />
+		{/each}
+		<label for="card-sort">Sort</label>
+		<select id="card-sort" name="sort">
+			<option value="" selected={!currentSort}>Default</option>
+			{#each fields as prop (prop.id)}
+				<option value="{prop.name}:asc" selected={currentSort === `${prop.name}:asc`}>{prop.name} ↑</option>
+				<option value="{prop.name}:desc" selected={currentSort === `${prop.name}:desc`}>{prop.name} ↓</option>
+			{/each}
+		</select>
+		<button class="btn small" type="submit">Apply</button>
+	</form>
+
+	<ul class="cards">
+		{#each data.rows as row (row.id)}
+			<li class="card">
+				<div class="card-head">
+					<span class="card-title">{titleProp ? cellText(row.values[titleProp.name]) : '—'}</span>
+					{#if data.canEdit}<a class="btn small" href={editHref(row.id)}>Edit</a>{/if}
+				</div>
+				<dl class="card-fields">
+					{#each cardFields as prop (prop.id)}
+						<div class="card-field">
+							<dt>{prop.name}</dt>
+							<dd class="type-{prop.type}">{@render cell(prop, row.values[prop.name])}</dd>
+						</div>
+					{/each}
+				</dl>
+			</li>
+		{:else}
+			<li class="card empty">No rows match.</li>
+		{/each}
+	</ul>
 
 	<footer class="pager">
 		<span class="muted">{first}–{last} of {data.total}</span>
@@ -259,14 +312,18 @@
 	th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 	th { position: sticky; top: 0; background: var(--panel); font: 700 0.72rem var(--mono); text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); white-space: nowrap; z-index: 1; }
 	th a { color: inherit; }
-	tr:hover td { background: color-mix(in srgb, var(--fg) 4%, transparent); }
+	tbody th { position: static; z-index: auto; background: none; font: inherit; text-transform: none; letter-spacing: normal; white-space: normal; color: var(--fg); }
+	tbody th a { color: var(--link); }
+	.database :is(a, button, select, input):focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+	tbody tr:hover :is(td, th) { background: color-mix(in srgb, var(--fg) 4%, transparent); }
 	.type-number { text-align: right; font-variant-numeric: tabular-nums; }
 	.type-title { min-width: 12rem; }
 	.type-text { min-width: 14rem; max-width: 32rem; }
-	.cell .chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; margin: 1px 2px 1px 0; font-size: 0.78rem; color: var(--muted); }
-	.cell .chips { display: inline-flex; flex-wrap: wrap; gap: 2px; }
+	.chip { display: inline-block; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; margin: 1px 2px 1px 0; font-size: 0.78rem; color: var(--muted); }
+	.chips { display: inline-flex; flex-wrap: wrap; gap: 2px; }
 	.checkbox .checked, .type-checkbox .checked { color: var(--hl-string); font-weight: 700; }
 	.empty { text-align: center; color: var(--muted); padding: 1.4rem; }
+	.card-sort, .cards { display: none; }
 	.pager { display: flex; gap: 0.5rem; align-items: center; margin-top: 0.8rem; }
 	.head-actions { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.7rem; }
 	.db-count { margin: 0; }
@@ -289,4 +346,25 @@
 	.edit-link { font-size: 0.72rem; color: var(--muted); opacity: 0; }
 	tr:hover .edit-link, .edit-link:focus-visible { opacity: 1; }
 	@media (hover: none) { .edit-link { opacity: 1; } }
+
+	/* Under 640px a card list replaces the table; filters and sort stay the same server-side query. */
+	@media (max-width: 639px) {
+		.db-head { align-items: flex-start; }
+		.head-actions { margin-bottom: 0.3rem; }
+		.filter-row { grid-template-columns: minmax(0, 1fr); }
+		.filter-actions .btn { flex: 1; justify-content: center; }
+		.table-wrap { display: none; }
+		.cards { display: grid; gap: 0.55rem; list-style: none; margin: 0; padding: 0; }
+		.card { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.6rem 0.7rem; }
+		.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; }
+		.card-title { min-width: 0; font-weight: 700; overflow-wrap: anywhere; }
+		.card-fields { display: grid; gap: 0.3rem; margin: 0.45rem 0 0; }
+		.card-field { display: grid; grid-template-columns: minmax(5rem, 34%) minmax(0, 1fr); gap: 0.4rem; }
+		.card-field dt { padding-top: 0.1rem; color: var(--muted); font: 700 0.68rem var(--mono); letter-spacing: 0.04em; text-transform: uppercase; overflow-wrap: anywhere; }
+		.card-field dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+		.card-field dd.type-number { text-align: right; }
+		.card-sort { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
+		.card-sort label { color: var(--muted); font: 700 0.72rem var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
+		.card-sort select { flex: 1; min-width: 0; min-height: 34px; padding: 0.3rem 0.5rem; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+	}
 </style>
