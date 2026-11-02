@@ -88,7 +88,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - Typed tables in SQLite at `/var/lib/stichpunkt/collections.sqlite` (`COLLECTIONS_DB` overrides; app state, deliberately outside the mounted space), with properties (`title`, `text`, `number`, `select`, `multi_select`, `date`, `checkbox`, `url`, `email`), rows and cells as real records.
 - Notion-style table view at `/databases`: filter bar, click-to-sort columns, saved views, typed cell rendering and live reload over the existing SSE stream.
 - Filtering and sorting run in SQL with bound parameters; `base_updated_at` gives optimistic concurrency; every row change is recorded with an actor.
-- REST API under `/api/v1/databases`; `import/preview` reports the Markdown tables of a page before any migration. See [docs/collections.md](docs/collections.md).
+- REST API under `/api/v1/databases`; `import/preview` reports the Markdown tables of a page before any migration, `export?format=csv|json` returns a portable snapshot of one collection. See [docs/collections.md](docs/collections.md).
 - Requires the space on local disk — SQLite must not run on the rclone/FUSE mount.
 
 
