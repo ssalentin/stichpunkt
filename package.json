@@ -9,7 +9,8 @@
     "start": "node build/index.js",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
-    "search:eval": "vitest run test/search-eval.test.ts --reporter=verbose"
+    "search:eval": "vitest run test/search-eval.test.ts --reporter=verbose",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "engines": {
     "node": ">=22"
@@ -21,6 +22,7 @@
     "@types/node": "^26.6.4",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
+    "tsx": "^4.23.15",
     "typescript": "^6.0.3",
     "vite": "^8.3.4",
     "vitest": "^5.0.3"
