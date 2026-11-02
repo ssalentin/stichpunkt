@@ -193,6 +193,10 @@ Set via environment variables (see [`.env.example`](.env.example)).
 | `MAX_WRITE_BYTES` | `1048576` | max size of a page write |
 | `MAX_UPLOAD_BYTES` | `20971520` | max size of an attachment |
 | `HISTORY_KEEP` | `50` | revisions kept per page under `.history/`; `0` keeps every revision |
+| `COLLECTIONS_DB` | `/var/lib/stichpunkt/collections.sqlite` | SQLite file behind `/databases` |
+| `DEPLOYED_SHA_FILE` | `/var/lib/stichpunkt/deployed.sha` | commit reported by `/healthz`; missing is not an error |
+| `BACKUP_LOG` | `/var/lib/openbot/backup.log` | log whose last `backup ok <stamp>` line `/healthz` reads |
+| `HEALTHZ_MAX_BACKUP_AGE_SECONDS` | `129600` (36 h) | older backup evidence turns `/healthz` into 503 |
 | `BODY_SIZE_LIMIT` | `25M` (image) | adapter-node request body limit; keep ≥ `MAX_UPLOAD_BYTES` |
 | `PORT`, `HOST`, `PROTOCOL_HEADER`, `HOST_HEADER` | | adapter-node settings |
 
@@ -294,6 +298,28 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 - **Checking.** Page writes never fail because of the manifest; they return `warnings` for the resulting page: `missing_frontmatter`, `forbidden_prefix`, `unknown_folder` (only when `folders` is set; root pages are skipped), `possible_secret` (private-key headers, GitHub tokens, `sk-` keys, AWS access keys, Slack tokens, long `Bearer` tokens), with the `links` check `dead_link` for every wikilink whose target does not exist, with `frontmatter` `tag_not_allowed` for tags outside `pages.allowed_tags`, with `owner` `owner_mismatch` when the acting agent (`agent` argument or `X-Agent` header) differs from the folder owner, and with `stand_age` `stand_missing` / `stand_unparseable` / `stand_stale` for the configured stand date. Full schema: [`docs/manifest.md`](docs/manifest.md). A `possible_secret` warning names only the rule and the line, never the value. `validate_page` / `POST /api/v1/validate` return the same warnings without writing.
 
 ## Operations
+
+### Health check
+
+`GET /healthz` answers `200` when all checks pass and `503` otherwise. It needs no token, so the deploy script and an uptime monitor can call it; the body never contains filesystem paths, tokens or row content.
+
+```json
+{
+  "status": "ok",
+  "checked_at": "2026-11-02T19:56:48.000Z",
+  "checks": {
+    "database": { "ok": true, "integrity": "ok", "schema_version": 0 },
+    "write": { "ok": true, "mode": "begin_immediate_rollback" },
+    "deployed": { "ok": true, "present": true, "sha": "45996c4", "age_seconds": 90 },
+    "backup": { "ok": true, "last_at": "2026-11-02T18:22:00.000Z", "age_seconds": 5688, "max_age_seconds": 129600 }
+  }
+}
+```
+
+- `database` runs `PRAGMA integrity_check` on a read-only connection and reports `PRAGMA user_version`.
+- `write` takes the write lock with `BEGIN IMMEDIATE` and rolls it back: it proves the write path without inserting a row or a revision.
+- `deployed` reports the commit in `deployed.sha`; before the first deploy the file is missing and still `ok`.
+- `backup` fails when the last `backup ok` entry is older than 36 hours.
 
 **Token rotation**
 
