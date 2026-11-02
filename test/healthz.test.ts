@@ -12,6 +12,7 @@ import {
 	runHealthChecks
 } from '../src/lib/server/health';
 import { GET } from '../src/routes/healthz/+server';
+import { SCHEMA_VERSION } from '../src/lib/server/migrations';
 
 let dir: string;
 
@@ -67,7 +68,7 @@ describe('health checks', () => {
 		expect(report.status).toBe(200);
 		expect(report.body.status).toBe('ok');
 		expect(report.body.checked_at).toBe(NOW.toISOString());
-		expect(report.body.checks.database).toEqual({ ok: true, integrity: 'ok', schema_version: 0 });
+		expect(report.body.checks.database).toEqual({ ok: true, integrity: 'ok', schema_version: SCHEMA_VERSION });
 		expect(report.body.checks.write).toEqual({ ok: true, mode: 'begin_immediate_rollback' });
 		expect(report.body.checks.deployed).toMatchObject({ ok: true, present: true, sha: '45996c4deadbeef' });
 		expect(report.body.checks.backup).toMatchObject({ ok: true, age_seconds: 3600, max_age_seconds: 129600 });
