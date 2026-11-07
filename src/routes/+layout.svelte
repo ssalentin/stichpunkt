@@ -18,6 +18,9 @@
 	import { layerInView } from '#lib/layers';
 	import { onMount } from 'svelte';
 
+	/** sessionStorage marker for the one automatic reload after a chunk gone missing */
+	const PRELOAD_RELOAD_KEY = 'stichpunkt.preload-reload';
+
 	type TreeNodeLike = { name: string; stub: string; path: string; layer?: string; page: boolean; children: TreeNodeLike[] };
 
 	let { data, children } = $props();
@@ -80,12 +83,27 @@
 		} catch {
 			/* private mode: both columns stay open */
 		}
+		// A deploy replaces the hashed chunks; an app that stayed open then fails to import one.
+		// Reload once (not in a loop) so the open window picks up the build the server has.
+		const onPreloadError = (event: Event) => {
+			event.preventDefault();
+			try {
+				const last = Number(sessionStorage.getItem(PRELOAD_RELOAD_KEY) ?? 0);
+				if (Date.now() - last < 60_000) return;
+				sessionStorage.setItem(PRELOAD_RELOAD_KEY, String(Date.now()));
+			} catch {
+				/* private mode: reload without the guard */
+			}
+			location.reload();
+		};
+		window.addEventListener('vite:preloadError', onPreloadError);
 		const live = startLive({ onChange: reload, onStatus: (on) => (ui.live = on) });
 		retryLive = live.retry;
 		if ('serviceWorker' in navigator) navigator.serviceWorker.register('/service-worker.js').catch(() => {});
 		const stopInstall = listenForInstall();
 		const stopUpdates = watchForUpdates();
 		return () => {
+			window.removeEventListener('vite:preloadError', onPreloadError);
 			live.stop();
 			stopInstall();
 			stopUpdates();
