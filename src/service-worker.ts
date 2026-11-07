@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 import { version } from '$app/env';
 import { assets, immutable } from '$app/manifest';
-import { absolutePaths, redirectedAway } from './lib/sw-paths';
+import { absolutePaths, pageCacheKey, redirectedAway } from './lib/sw-paths';
 
 declare const self: ServiceWorkerGlobalScope;
 
@@ -58,6 +58,8 @@ self.addEventListener('fetch', (event) => {
 	// pages (HTML and SvelteKit data requests): network first, last ~50 visited stay readable offline
 	const isPage = req.mode === 'navigate' || url.pathname.endsWith('/__data.json');
 	if (isPage) {
+		// the installed app starts at /?source=pwa; cache and look up that page under the same key as /
+		const key = new Request(pageCacheKey(req.url));
 		event.respondWith(
 			fetch(req)
 				.then((res) => {
@@ -69,11 +71,11 @@ self.addEventListener('fetch', (event) => {
 					// a 5xx during a restart is not a page: keep the last known copy instead of
 					// caching or showing the error page
 					if (res.status >= 500) throw new Error(`network error: ${res.status}`);
-					if (res.ok) event.waitUntil(put(PAGES, MAX_PAGES * 2, req, res.clone()));
+					if (res.ok) event.waitUntil(put(PAGES, MAX_PAGES * 2, key, res.clone()));
 					return res;
 				})
 				.catch(async () => {
-					const hit = (await caches.match(req)) ?? (req.mode === 'navigate' ? await caches.match(OFFLINE) : undefined);
+					const hit = (await caches.match(key)) ?? (req.mode === 'navigate' ? await caches.match(OFFLINE) : undefined);
 					return hit ?? Response.error();
 				})
 		);
