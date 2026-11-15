@@ -46,7 +46,9 @@ entirely over MCP.
 
 - [x] Grouping: `group_by` in a saved view, collapsible groups, group counts.
 - [x] Footer aggregates per column (count, sum, min, max, average) where the type allows it.
-- Multi-select bulk edit and undo through the existing `revision` table.
+- [x] Multi-select bulk edit and undo through the existing `revision` table: batches ride a new
+  `revision.batch_id`, an undo is itself a batch tagged with `undo_of`, and both are reachable
+  from the UI, `/api/v1` and MCP — see [collections.md](collections.md).
 - Mobile layout under 640px: card list instead of a horizontally scrolling table, same filters and
   sort.
 
