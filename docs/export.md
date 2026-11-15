@@ -86,9 +86,33 @@ rows. The procedure is what the restore drill checks.
    ```
 
    Row ids, `created_at` and `updated_at` are assigned by the new instance; the export's ids are
-   for diffing, not stable keys. Property names, types and options are preserved.
+   for diffing, not stable keys. Property names, types and options are preserved. Legacy rows can
+    carry `select` or `multi_select` values that are no longer in the property's options list; the
+    write API refuses those values, so widen the options in the create payload with the values the
+    exported rows actually carry before posting the rows. `scripts/restore-drill.sh` does exactly
+    that.
 4. Verify: the UI renders the pages, and a re-run of `GET /api/v1/export` on the fresh instance
    returns the same page set and the same row values. `/healthz` must stay green.
+
+## Restore drill
+
+`scripts/restore-drill.sh` runs the procedure above end to end against a copy: it copies space and
+database into a temp dir, adds a marker page, exports the copy with `npm run export`, starts a fresh
+instance on a free port (first free in 18096-18196, or `PORT`) with an empty database, restores pages
+and collections as described, then re-exports the fresh instance and compares page set, page bytes
+and row values. Select options are compared as a subset because the restore widens them with legacy
+row values where needed. It parses every produced CSV with an RFC 4180 reader and checks the
+`database` and `write` entries of `/healthz` on the fresh instance (its `backup` check has no record
+yet by design, so the endpoint answers 503 there). The drill writes only below its temp dir; it
+proves isolation by checking that the marker page never appears in the source space and that the
+source collection list is unchanged. A passing run prints one `check: … = ok` line per step and ends
+with `DRILL PASS`.
+
+```sh
+scripts/restore-drill.sh                                  # source defaults to the live instance on this host
+LIVE_SPACE=/path/space LIVE_DB=/path/db.sqlite scripts/restore-drill.sh   # any copyable source
+KEEP=1 scripts/restore-drill.sh                           # keep the temp dir for inspection
+```
 
 ## Limitations
 
