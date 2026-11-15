@@ -2,6 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { BRAND } from '../brand';
 import { mcpVersion } from '../version';
+import { getCollections } from './collection-service';
+import { FILTER_OPS } from './collections';
 import { MdwikiError } from './errors';
 import type { Mdwiki } from './service';
 
@@ -31,12 +33,25 @@ async function run(fn: () => unknown | Promise<unknown>): Promise<ToolResult> {
 	}
 }
 
+/** Like http.ts agentOf(): trim, cap at 120 characters. REST names the actor "api"; over MCP it is "mcp" unless the call says otherwise. */
+function actorOf(agent?: string): string {
+	const value = agent?.trim();
+	return value ? value.slice(0, 120) : 'mcp';
+}
+
 /** Same service layer as REST; one server instance per request (stateless). */
 export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	const server = new McpServer({ name: BRAND, version: mcpVersion() }, { instructions: mdwiki.manifestInstructions() ?? undefined });
 	const path = z.string().describe('Page name without ".md", e.g. "Server/SilverBullet"');
 	const agent = z.string().optional().describe('Optional actor name; the owner and stand checks use it to compare the folder owner');
 	const note = z.string().optional().describe('Optional note for the revision record (stored up to 500 characters)');
+	const collectionId = z.string().describe('Collection id (UUID) from list_collections');
+	const rowId = z.string().describe('Row id (UUID) from query_collection_rows or a row write');
+	// Wire shape only; the semantics are enforced once, in CollectionStore. Keys are exact, case-sensitive property names from get_collection.
+	const valuesSchema = z.record(z.string(), z.unknown());
+	const filterSchema = z.object({ property: z.string(), op: z.enum(FILTER_OPS), value: z.unknown().optional() });
+	const sortSchema = z.object({ property: z.string(), direction: z.enum(['asc', 'desc']).optional() });
+	const mcpAgent = z.string().optional().describe('Optional actor name recorded on the revision (default: "mcp")');
 
 	server.registerTool(
 		'search',
@@ -203,6 +218,81 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 			inputSchema: { expr: z.string(), page: z.string().optional() }
 		},
 		({ expr, page }) => run(() => mdwiki.evaluateExpression(expr, page ?? ''))
+	);
+	server.registerTool(
+		'list_collections',
+		{
+			description:
+				'List every collection (SQLite table) with its properties, row and view counts, ordered by name. Returns { databases: [...] } — collections are called "databases" in the REST API and the UI. Read the `id` from this output for every other collection tool.',
+			inputSchema: {}
+		},
+		() => run(() => ({ databases: getCollections().list() }))
+	);
+	server.registerTool(
+		'get_collection',
+		{
+			description:
+				'Read one collection: properties (name, type, select options) and saved views. The property names returned here are the exact keys for `values` and for filters and sorts; unknown keys fail with 400 and change nothing.',
+			inputSchema: { id: collectionId }
+		},
+		({ id }) => run(() => {
+			const s = getCollections();
+			return { ...s.get(id), views: s.views(id) };
+		})
+	);
+	server.registerTool(
+		'query_collection_rows',
+		{
+			description: `Query rows of a collection: filters [{property, op, value}] with ops ${FILTER_OPS.join(', ')}; sorts [{property, direction}] (default asc), stacking; limit (default 100, max 500) and offset; \`view\` applies a saved view. Returns {rows,total,properties}. An unknown property or an op the property type does not support fails with 400 and changes nothing. Read only.`,
+			inputSchema: {
+				id: collectionId,
+				filters: z.array(filterSchema).optional(),
+				sorts: z.array(sortSchema).optional(),
+				limit: z.number().int().optional(),
+				offset: z.number().int().optional(),
+				view: z.string().optional()
+			}
+		},
+		({ id, filters, sorts, limit, offset, view }) => run(() => getCollections().query(id, { filters, sorts: sorts?.map((s) => ({ ...s, direction: s.direction ?? 'asc' })), limit, offset, view }))
+	);
+	server.registerTool(
+		'create_collection_row',
+		{
+			description:
+				'Create a row. `values` is keyed by exact property name (see get_collection); each value is validated against the property type with the same rules as REST — unknown properties, bad select options and malformed numbers fail with 400 and write nothing. Not idempotent: calling twice creates two rows. The returned `updated_at` is the `base_updated_at` to pass to the next update_collection_row.',
+			inputSchema: { id: collectionId, values: valuesSchema, agent: mcpAgent }
+		},
+		({ id, values, agent }) => run(() => getCollections().createRow(id, values, actorOf(agent)))
+	);
+	server.registerTool(
+		'update_collection_row',
+		{
+			description:
+				'Update a row; only the properties present in `values` change and null clears a cell. With `base_updated_at` (the `updated_at` you read) the update fails with a conflict if the row changed meanwhile: the error carries `current` (the actual `updated_at`) — re-read the row, re-apply your change and retry. Omitted, the write is last-write-wins like REST. Validation is the same as create_collection_row.',
+			inputSchema: { id: collectionId, row_id: rowId, values: valuesSchema, base_updated_at: z.string().optional(), agent: mcpAgent }
+		},
+		({ id, row_id, values, base_updated_at, agent }) => run(() => getCollections().updateRow(id, row_id, values, actorOf(agent), base_updated_at))
+	);
+	server.registerTool(
+		'delete_collection_row',
+		{
+			description:
+				'Delete a row. The revision history keeps the last values and the deleting actor. Returns {id, deleted: true}.',
+			inputSchema: { id: collectionId, row_id: rowId, agent: mcpAgent }
+		},
+		({ id, row_id, agent }) => run(() => {
+			getCollections().deleteRow(id, row_id, actorOf(agent));
+			return { id: row_id, deleted: true };
+		})
+	);
+	server.registerTool(
+		'collection_history',
+		{
+			description:
+				'Revision list of a collection, or of one row with `row_id`, newest first: {id, row_id, at, actor, op, before, after}. Every MCP/REST row write records one revision. Read only.',
+			inputSchema: { id: collectionId, row_id: rowId.optional(), limit: z.number().int().optional() }
+		},
+		({ id, row_id, limit }) => run(() => getCollections().history(id, row_id, limit ?? 50))
 	);
 	server.registerTool(
 		'upload_attachment',

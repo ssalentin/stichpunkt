@@ -2,7 +2,10 @@
 
 A collection is a typed, relational table next to the notes. It is not a Markdown table and not a
 view over page frontmatter: rows, properties, cells and saved views live in SQLite. The app renders
-them at `/databases`, and agents use the REST API under `/api/v1/databases`.
+them at `/databases`, and agents work with them over the REST API under `/api/v1/databases` and the
+matching MCP tools (`list_collections`, `get_collection`, `query_collection_rows`,
+`create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`).
+Both paths call the same service layer, so validation and conflict behaviour are identical.
 
 ## Where the data lives
 
@@ -121,3 +124,13 @@ table view, filters, multi-key sorts, saved views per database. Not implemented 
 editing, board/calendar/timeline layouts, relations/rollups/formulas, grouping, per-view property
 visibility beyond columns, and per-cell revision display. Live updates ride the existing SSE stream
 (`/_ui/events`), so an open table reloads when a row changes.
+
+## Verification
+
+`scripts/mcp-collections-walk.sh` runs the acceptance walk of the seven collection tools against a
+copy of an instance: it copies space and database into a temp dir, starts the built server on a
+free port and drives every tool over Streamable HTTP MCP (`scripts/mcp-walk.ts`), including a
+filtered query, the `409` conflict on a stale `base_updated_at`, a validation refusal and the
+revision history of the scratch row it deletes again. Every write stays below the temp dir, so the
+source instance is never touched. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/mcp-collections-evidence.png` shows one against a copy of the live instance.
