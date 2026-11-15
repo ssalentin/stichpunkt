@@ -3,20 +3,22 @@ import { getCollections } from '#lib/server/collection-service';
 import { agentOf, fail, readJson } from '#lib/server/http';
 import type { RequestHandler } from './$types';
 
-/** Read rows. Query params: view, limit, offset and repeated filter=property:op:value / sort=property:asc. */
+/** Read rows. Query params: view, limit, offset, group and repeated filter=property:op:value / sort=property:asc. */
 export const GET: RequestHandler = async ({ params, url }) => {
 	try {
 		const filters = url.searchParams.getAll('filter').map(parseFilter);
 		const sorts = url.searchParams.getAll('sort').map(parseSort);
 		const limit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
 		const offset = Number.parseInt(url.searchParams.get('offset') ?? '', 10);
+		const group = url.searchParams.get('group')?.trim();
 		return json(
 			getCollections().query(params.id, {
 				filters,
 				sorts,
 				limit: Number.isFinite(limit) ? limit : undefined,
 				offset: Number.isFinite(offset) ? offset : undefined,
-				view: url.searchParams.get('view') ?? undefined
+				view: url.searchParams.get('view') ?? undefined,
+				group_by: group ? { property: group, direction: 'asc' } : undefined
 			})
 		);
 	} catch (e) {

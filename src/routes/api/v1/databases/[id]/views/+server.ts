@@ -11,7 +11,7 @@ export const GET: RequestHandler = async ({ params }) => {
 	}
 };
 
-/** Create or update a saved view. Body: { id?, name, filters?, sorts?, columns? } */
+/** Create or update a saved view. Body: { id?, name, filters?, sorts?, columns?, group_by?, aggregates? } */
 export const POST: RequestHandler = async ({ params, request }) => {
 	try {
 		const body = await readJson(request, 32 * 1024);
@@ -21,7 +21,9 @@ export const POST: RequestHandler = async ({ params, request }) => {
 				name: body.name,
 				filters: body.filters,
 				sorts: body.sorts,
-				columns: body.columns
+				columns: body.columns,
+				group_by: body.group_by,
+				aggregates: body.aggregates
 			}),
 			{ status: 201 }
 		);
