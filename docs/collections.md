@@ -103,7 +103,8 @@ POST   /api/v1/databases/import                  {path, table, name?, columns?, 
 `base_updated_at` makes an update optimistic: a stale timestamp returns `409` instead of overwriting.
 `export` returns a read-only snapshot: CSV uses the property names as header and quotes on comma,
 quote or line break; JSON keeps property types, options and row ids. An export can paginate past the
-500-row query limit because the service pages internally.
+500-row query limit because the service pages internally. For the whole instance (all pages plus all
+collections with a versioned header) see [docs/export.md](export.md).
 
 
 ## Markdown migration
