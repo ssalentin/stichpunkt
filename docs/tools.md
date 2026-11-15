@@ -11,6 +11,15 @@ Agent-facing MCP tools and the matching REST routes. Page paths never carry `.md
 | `activity` | `GET /api/v1/activity` | revision activity across pages |
 | `history` | `GET /api/v1/history/<path>` | revision list |
 | `diff` | `GET /api/v1/diff/<path>` | unified diff against a revision |
+| `list_collections` | `GET /api/v1/databases` | collections with properties and counts |
+| `get_collection` | `GET /api/v1/databases/<id>` | one collection, properties and views |
+| `query_collection_rows` | `POST /api/v1/databases/<id>/query` | filter, sort and page through rows |
+| `create_collection_row` | `POST /api/v1/databases/<id>/rows` | create a row |
+| `update_collection_row` | `PATCH /api/v1/databases/<id>/rows/<rowId>` | update a row, `base_updated_at` conflict |
+| `delete_collection_row` | `DELETE /api/v1/databases/<id>/rows/<rowId>` | delete a row |
+| `collection_history` | – (REST has no collection history) | row revisions, newest first |
+
+Collections are SQLite tables ("databases" in REST and the UI). The seven collection tools call the same service layer as `/api/v1/databases`, so validation and the `409` conflict behaviour (with `current`) are identical; model and filter operators: [`collections.md`](collections.md).
 
 Writes (`write_page`, `write_pages`, `append_to_page`, `delete_page`, `move_page`) keep the previous content under `.history/<path>/<timestamp>-<hash>.md`. Direct file edits are **not** versioned: only the MCP and REST write paths call the revision store.
 

@@ -2,7 +2,10 @@
 
 A collection is a typed, relational table next to the notes. It is not a Markdown table and not a
 view over page frontmatter: rows, properties, cells and saved views live in SQLite. The app renders
-them at `/databases`, and agents use the REST API under `/api/v1/databases`.
+them at `/databases`, and agents work with them over the REST API under `/api/v1/databases` and the
+matching MCP tools (`list_collections`, `get_collection`, `query_collection_rows`,
+`create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`).
+Both paths call the same service layer, so validation and conflict behaviour are identical.
 
 ## Where the data lives
 
