@@ -160,7 +160,7 @@
 		{/if}
 
 		<p class="count" aria-live="polite">
-			{result.total} {result.total === 1 ? 'page' : 'pages'}
+			{result.total - result.rows} {result.total - result.rows === 1 ? 'page' : 'pages'}
 			{#if result.rows}<span class="count-note">· {result.rows} {result.rows === 1 ? 'row' : 'rows'}</span>{/if}
 			{#if result.mode === 'or'}<span class="count-note">· some words do not occur, showing partial matches</span>{/if}
 			{#if result.mode === 'fuzzy'}<span class="count-note">· no exact match, nearest pages</span>{/if}
