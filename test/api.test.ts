@@ -421,7 +421,6 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-<<<<<<< HEAD
 			['activity', 'append_to_page', 'bulk_update_collection_rows', 'check_links', 'check_manifest', 'collection_history', 'create_collection_row', 'delete_collection_row', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_collection', 'get_manifest', 'history', 'list_collections', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_collection_rows', 'query_pages', 'read_page', 'save_collection_view', 'search', 'undo_collection_batch', 'update_collection_row', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});

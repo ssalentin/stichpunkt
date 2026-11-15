@@ -145,6 +145,42 @@
 		if (prop.type === 'date' && typeof entry.value === 'string') return cellText(entry.value.slice(0, 10));
 		return cellText(entry.value);
 	}
+
+	// ---- bulk edit -----------------------------------------------------------------------
+	/** Row ids ticked on this page; the panel form collects them through `form="bulk-form"`. */
+	let selected = $state<Set<string>>(new Set());
+	let bulkProp = $state('');
+
+	/** A row that filter, sort or paging moved off the page leaves the selection with it. */
+	$effect(() => {
+		const onPage = new Set(data.rows.map((r: RowRecord) => r.id));
+		if ([...selected].some((id) => !onPage.has(id))) selected = new Set([...selected].filter((id) => onPage.has(id)));
+	});
+
+	const selectedCount = $derived(selected.size);
+	const allSelected = $derived(data.rows.length > 0 && data.rows.every((r: RowRecord) => selected.has(r.id)));
+	/** Titles stay out of reach: a bulk change would rename the collection in one click. */
+	const bulkProperties = $derived(fields.filter((p: Property) => p.type !== 'title'));
+
+	function toggleRow(rowId: string, on: boolean): void {
+		const next = new Set(selected);
+		if (on) next.add(rowId);
+		else next.delete(rowId);
+		selected = next;
+	}
+
+	function toggleAllRows(on: boolean): void {
+		const ids = data.rows.map((r: RowRecord) => r.id);
+		selected = on ? new Set([...selected, ...ids]) : new Set([...selected].filter((id) => !ids.includes(id)));
+	}
+
+	function bulkLabel(row: RowRecord): string {
+		return titleProp ? cellText(row.values[titleProp.name]) : row.id;
+	}
+
+	/** The panel is opened by a link (`?bulk=1`) so it works without JS; the click upgrades it. */
+	let bulkPanel = $state(false);
+	const panelOpen = $derived(data.bulk || bulkPanel);
 </script>
 
 {#snippet cell(prop: Property, value: unknown)}
@@ -164,7 +200,10 @@
 {/snippet}
 
 {#snippet rowItem(row: RowRecord)}
-	<tr>
+	<tr class:selected={selected.has(row.id)}>
+		{#if data.canEdit}
+			<td class="pick">{@render rowPick(row)}</td>
+		{/if}
 		{#each visible as prop (prop.id)}
 			{@const value = row.values[prop.name]}
 			{#if prop.id === titleProp?.id}
@@ -184,8 +223,9 @@
 {/snippet}
 
 {#snippet cardItem(row: RowRecord)}
-	<li class="card">
+	<li class="card" class:selected={selected.has(row.id)}>
 		<div class="card-head">
+			{#if data.canEdit}<span class="card-pick">{@render rowPick(row)}</span>{/if}
 			<span class="card-title">{titleProp ? cellText(row.values[titleProp.name]) : '—'}</span>
 			{#if data.canEdit}<a class="btn small" href={editHref(row.id)}>Edit</a>{/if}
 		</div>
@@ -209,6 +249,45 @@
 	>
 {/snippet}
 
+
+{#snippet fieldInput(prop: Property, row: RowRecord | null)}
+	{#if prop.type === 'checkbox'}
+		<input type="hidden" name={`p:${prop.name}`} value="0" />
+		<input type="checkbox" name={`p:${prop.name}`} value="1" checked={row?.values[prop.name] === true} />
+	{:else if prop.type === 'select'}
+		<select name={`p:${prop.name}`}>
+			<option value="">—</option>
+			{#each prop.options ?? [] as option (option)}
+				<option value={option} selected={fieldValue(prop, row) === option}>{option}</option>
+			{/each}
+		</select>
+	{:else if prop.type === 'multi_select'}
+		<span class="multi">
+			{#each prop.options ?? [] as option (option)}
+				<label class="check">
+					<input type="checkbox" name={`p:${prop.name}`} value={option} checked={listValue(prop, row).includes(option)} />
+					{option}
+				</label>
+			{/each}
+		</span>
+	{:else if prop.type === 'number'}
+		<input type="number" step="any" name={`p:${prop.name}`} value={fieldValue(prop, row)} />
+	{:else if prop.type === 'date'}
+		<input type="date" name={`p:${prop.name}`} value={fieldValue(prop, row)} />
+	{:else if prop.type === 'url'}
+		<input type="url" name={`p:${prop.name}`} value={fieldValue(prop, row)} />
+	{:else if prop.type === 'email'}
+		<input type="email" name={`p:${prop.name}`} value={fieldValue(prop, row)} />
+	{:else}
+		<input type="text" name={`p:${prop.name}`} value={fieldValue(prop, row)} />
+	{/if}
+{/snippet}
+
+{#snippet rowPick(row: RowRecord)}
+	<input type="checkbox" name="row_id" value={row.id} form="bulk-form" aria-label={`Select ${bulkLabel(row)}`} checked={selected.has(row.id)} onchange={(e) => toggleRow(row.id, e.currentTarget.checked)} />
+	<input type="hidden" name={`base:${row.id}`} value={row.updated_at} form="bulk-form" />
+{/snippet}
+
 <svelte:head><title>{db.name} · {BRAND}</title></svelte:head>
 
 <article class="page database">
@@ -219,6 +298,7 @@
 		</div>
 		<div class="head-actions">
 			{#if data.canEdit}<a class="btn small primary" href={hrefWith({ new: '1', edit: null, saved: null })}>New row</a>{/if}
+			{#if data.canEdit}<a class="btn small" href={hrefWith({ bulk: '1', saved: null })}>Bulk edit</a>{/if}
 			<p class="db-count">{data.total} {data.total === 1 ? 'row' : 'rows'}</p>
 		</div>
 	</header>
@@ -231,10 +311,75 @@
 	</nav>
 
 	{#if data.saved}
-		<p class="notice ok" role="status">Saved.</p>
+		<div class="saved-row">
+			<p class="notice ok" role="status">Saved.</p>
+			{#if data.canEdit && data.batch}
+				<form class="saved-undo" method="post" action="?/undo">
+					<input type="hidden" name="batch_id" value={data.batch} />
+					<button class="btn small" type="submit">Undo bulk change</button>
+				</form>
+			{/if}
+		</div>
 	{/if}
 	{#if form?.error}
 		<p class="notice bad" role="alert">{form.error}</p>
+	{/if}
+
+	{#if data.canEdit}
+		<!-- One form for the whole selection: the row checkboxes join it through form="bulk-form", so
+		     the panel can sit above the table and the table keeps its own markup. -->
+		<form id="bulk-form" method="post" action="?/bulk">
+			{#if selectedCount || panelOpen}
+				<div class="bulk">
+					<div class="bulk-bar">
+						<span class="bulk-count">{selectedCount ? `${selectedCount} selected` : 'Bulk edit'}</span>
+						{#if !panelOpen}
+							<a
+								class="btn small primary"
+								href={hrefWith({ bulk: '1', saved: null })}
+								onclick={(e) => {
+									e.preventDefault();
+									bulkPanel = true;
+								}}>Bulk edit</a
+							>
+						{/if}
+						<button class="btn small" type="button" onclick={() => (selected = new Set())}>Clear</button>
+					</div>
+					{#if panelOpen}
+						<div class="bulk-fields">
+							<label class="field">
+								<span>Property</span>
+								<select name="property" bind:value={bulkProp}>
+									<option value="">Choose…</option>
+									{#each bulkProperties as prop (prop.id)}
+										<option value={prop.name}>{prop.name}</option>
+									{/each}
+								</select>
+							</label>
+							{#each bulkProperties as prop (prop.id)}
+								{#if !bulkProp || bulkProp === prop.name}
+									<label class="field">
+										<span>New value for {prop.name}</span>
+										{@render fieldInput(prop, null)}
+									</label>
+								{/if}
+							{/each}
+						</div>
+						<div class="bulk-actions">
+							<button class="btn small primary" type="submit">Apply to {selectedCount ? `${selectedCount} ` : 'selected '}rows</button>
+							<a
+								class="btn small"
+								href={hrefWith({ bulk: null, saved: null })}
+								onclick={(e) => {
+									e.preventDefault();
+									bulkPanel = false;
+								}}>Close</a
+							>
+						</div>
+					{/if}
+				</div>
+			{/if}
+		</form>
 	{/if}
 
 	{#if data.canEdit && (data.creating || data.editing)}
@@ -247,36 +392,7 @@
 					{#each fields as prop (prop.id)}
 						<label class="field">
 							<span>{prop.name}</span>
-							{#if prop.type === 'checkbox'}
-								<input type="hidden" name="p:{prop.name}" value="0" />
-								<input type="checkbox" name="p:{prop.name}" value="1" checked={data.editing?.values[prop.name] === true} />
-							{:else if prop.type === 'select'}
-								<select name="p:{prop.name}">
-									<option value="">—</option>
-									{#each prop.options ?? [] as option (option)}
-										<option value={option} selected={fieldValue(prop, data.editing) === option}>{option}</option>
-									{/each}
-								</select>
-							{:else if prop.type === 'multi_select'}
-								<span class="multi">
-									{#each prop.options ?? [] as option (option)}
-										<label class="check">
-											<input type="checkbox" name="p:{prop.name}" value={option} checked={listValue(prop, data.editing).includes(option)} />
-											{option}
-										</label>
-									{/each}
-								</span>
-							{:else if prop.type === 'number'}
-								<input type="number" step="any" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
-							{:else if prop.type === 'date'}
-								<input type="date" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
-							{:else if prop.type === 'url'}
-								<input type="url" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
-							{:else if prop.type === 'email'}
-								<input type="email" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
-							{:else}
-								<input type="text" name="p:{prop.name}" value={fieldValue(prop, data.editing)} />
-							{/if}
+							{@render fieldInput(prop, data.editing)}
 						</label>
 					{/each}
 				</div>
@@ -342,6 +458,16 @@
 		<table>
 			<thead>
 				<tr>
+					{#if data.canEdit}
+						<th scope="col" class="pick">
+							<input
+								type="checkbox"
+								aria-label="Select all rows on this page"
+								checked={allSelected}
+								onchange={(e) => toggleAllRows(e.currentTarget.checked)}
+							/>
+						</th>
+					{/if}
 					{#each visible as prop (prop.id)}
 						<th scope="col">
 							<a href={sortHref(prop.name)} title="Sort by {prop.name}">{prop.name} <span class="sort-mark">{sortMark(prop.name)}</span></a>
@@ -353,7 +479,7 @@
 				{#each sections as section (section.key ?? EMPTY_GROUP_KEY)}
 					<tbody class="group-body">
 						<tr class="group-head">
-							<th scope="colgroup" colspan={visible.length}>
+							<th scope="colgroup" colspan={visible.length + (data.canEdit ? 1 : 0)}>
 								{@render groupHead(section)}
 								<span class="group-label">{groupLabel(section)}</span>
 								<span class="group-count">{section.count}</span>
@@ -365,20 +491,21 @@
 					</tbody>
 				{/each}
 				{#if sections.length === 0}
-					<tbody><tr><td class="empty" colspan={visible.length}>No rows match.</td></tr></tbody>
+					<tbody><tr><td class="empty" colspan={visible.length + (data.canEdit ? 1 : 0)}>No rows match.</td></tr></tbody>
 				{/if}
 			{:else}
 				<tbody>
 					{#each data.rows as row (row.id)}
 						{@render rowItem(row)}
 					{:else}
-						<tr><td class="empty" colspan={visible.length}>No rows match.</td></tr>
+						<tr><td class="empty" colspan={visible.length + (data.canEdit ? 1 : 0)}>No rows match.</td></tr>
 					{/each}
 				</tbody>
 			{/if}
 			{#if data.aggregates}
 				<tfoot>
 					<tr>
+						{#if data.canEdit}<td class="pick"></td>{/if}
 						{#each visible as prop (prop.id)}
 							{#if prop.id === titleProp?.id}
 								<th scope="row" class="cell type-{prop.type}">{aggregateText(prop)}</th>
@@ -436,6 +563,29 @@
 			{/each}
 		{/if}
 	</ul>
+
+	{#if data.canEdit && data.batches.length}
+		<section class="batches" aria-label="Recent bulk changes">
+			<h2>Recent bulk changes</h2>
+			<ul>
+				{#each data.batches as batch (batch.batch_id)}
+					<li>
+						<form method="post" action="?/undo">
+							<input type="hidden" name="batch_id" value={batch.batch_id} />
+							<time datetime={batch.at}>{batch.at.slice(0, 16).replace('T', ' ')} UTC</time>
+							<span class="muted">{batch.actor}</span>
+							<span>{batch.row_count} {batch.row_count === 1 ? 'row' : 'rows'}</span>
+							{#if batch.undone}
+								<span class="chip">undone</span>
+							{:else}
+								<button class="btn small" type="submit">Undo</button>
+							{/if}
+						</form>
+					</li>
+				{/each}
+			</ul>
+		</section>
+	{/if}
 
 	<footer class="pager">
 		<span class="muted">{first}–{last} of {data.total}</span>
@@ -502,6 +652,23 @@
 	.field .check { display: inline-flex; align-items: center; gap: 0.3rem; font-size: 0.85rem; }
 	.field input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent); }
 	.editor-actions { display: flex; gap: 0.4rem; margin-top: 0.8rem; flex-wrap: wrap; }
+
+	/* Bulk edit: the panel the selection bar opens, plus the tick column in table and cards. */
+	.bulk { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 0.7rem 0.9rem; margin: 0 0 1rem; display: grid; gap: 0.7rem; }
+	.bulk-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+	.bulk-count { font: 700 0.74rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+	.bulk-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.6rem 0.8rem; }
+	.bulk-actions { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+	.pick { width: 2.4rem; text-align: center; }
+	.pick input[type='checkbox'], .card-pick input[type='checkbox'] { width: 16px; height: 16px; accent-color: var(--accent); vertical-align: middle; }
+	.card-pick { display: inline-flex; align-items: center; margin-right: 0.25rem; }
+	tr.selected :is(td, th), .card.selected { background: color-mix(in srgb, var(--accent) 9%, transparent); }
+	.batches { margin: 1rem 0 0; border-top: 1px solid var(--border); padding-top: 0.7rem; }
+	.batches h2 { margin: 0 0 0.5rem; font: 700 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+	.batches ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.4rem; }
+	.batches form { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; font-size: 0.85rem; }
+	.batches time { font: 0.78rem var(--mono); color: var(--muted); }
+	.saved-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 	.title-cell { display: inline-flex; align-items: baseline; gap: 0.6rem; }
 	.edit-link { font-size: 0.72rem; color: var(--muted); opacity: 0; }
 	tr:hover .edit-link, .edit-link:focus-visible { opacity: 1; }
