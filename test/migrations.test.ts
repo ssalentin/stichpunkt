@@ -134,6 +134,30 @@ describe('schema migrations', () => {
 	});
 
 
+	it('applies v2 to a v1 database and keeps the existing view', () => {
+		const file = path.join(workspace(), 'collections.sqlite');
+		v1Database(file);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
+
+		const store = CollectionStore.open(file);
+		expect(store.list()).toMatchObject([{ id: 'c1', name: 'Bücher', row_count: 1, view_count: 1 }]);
+		expect(store.views('c1')).toMatchObject([{ id: 'v1', name: 'Alle', group_by: null, aggregates: {} }]);
+		expect(store.query('c1').rows[0].values).toEqual({ Titel: 'Die Welt' });
+		store.close();
+
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		const db = new DatabaseSync(file);
+		const columns = (db.prepare('PRAGMA table_info("view")').all() as { name: string }[]).map((c) => c.name);
+		expect(columns).toEqual(expect.arrayContaining(['group_by', 'aggregates']));
+		db.close();
+
+		// a second open at v2 applies nothing and changes nothing
+		const again = CollectionStore.open(file);
+		expect(again.views('c1')).toMatchObject([{ id: 'v1', group_by: null, aggregates: {} }]);
+		again.close();
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(backups(file)).toHaveLength(1);
+	});
 	it('adopts a pre-migration database without touching its rows and backs it up first', () => {
 		const file = path.join(workspace(), 'collections.sqlite');
 		legacyDatabase(file);

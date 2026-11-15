@@ -47,6 +47,9 @@ export interface GroupBy {
 	direction: 'asc' | 'desc';
 }
 
+/** group_by as accepted on the wire: direction is optional and defaults to asc. */
+export type GroupByInput = { property: string; direction?: 'asc' | 'desc' };
+
 /** Column aggregates keyed by property name. */
 export type Aggregates = Record<string, AggregateFn>;
 
@@ -116,7 +119,7 @@ export interface RowQuery {
 	offset?: number;
 	view?: string;
 	/** undefined falls back to the view's group_by; explicit null disables grouping. */
-	group_by?: GroupBy | null;
+	group_by?: GroupByInput | null;
 	/** undefined falls back to the view's aggregates; explicit null or {} disables aggregates. */
 	aggregates?: Aggregates | null;
 }
@@ -227,7 +230,7 @@ function parseAggregates(raw: unknown): Aggregates {
 export function aggregateAllowed(fn: AggregateFn, type: PropertyType): boolean {
 	if (fn === 'count' || fn === 'count_values') return true;
 	if (fn === 'sum' || fn === 'average') return type === 'number';
-	return type === 'number' || type === 'date' || type === 'text' || type === 'url' || type === 'email';
+	return type === 'number' || type === 'date' || type === 'text' || type === 'title' || type === 'url' || type === 'email';
 }
 
 function clampLimit(n: unknown): number {
