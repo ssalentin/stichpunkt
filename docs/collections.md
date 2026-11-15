@@ -79,6 +79,16 @@ concatenated into SQL.
 A saved view stores filters, sorts and visible columns. Explicit request filters override the view's
 filters; the view's columns still apply.
 
+## Search
+
+Row values are searchable from the normal wiki search. Rows live in the same index as the pages but as
+their own document set, scored with the page corpus statistics — page ranking is unaffected. Hits from
+rows share the one result list and carry a `row` object (collection, row, matched property and an `href`
+that opens the row directly). Quoted phrases match within a single cell line; `#tag` and `in:folder`
+queries stay page-scoped and skip rows. The index follows writes without a restart: it is seeded at boot
+when the collections file already exists, attaches at the first open otherwise, and coalesces bursts of
+row changes into one re-index a quarter second after the last write.
+
 ## API
 
 ```
