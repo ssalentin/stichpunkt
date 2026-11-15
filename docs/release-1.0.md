@@ -44,8 +44,8 @@ entirely over MCP.
 
 ### C. Table usability (M2)
 
-- Grouping: `group_by` in a saved view, collapsible groups, group counts.
-- Footer aggregates per column (count, sum, min, max, average) where the type allows it.
+- [x] Grouping: `group_by` in a saved view, collapsible groups, group counts.
+- [x] Footer aggregates per column (count, sum, min, max, average) where the type allows it.
 - Multi-select bulk edit and undo through the existing `revision` table.
 - Mobile layout under 640px: card list instead of a horizontally scrolling table, same filters and
   sort.

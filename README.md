@@ -89,7 +89,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - Notion-style table view at `/databases`: filter bar, click-to-sort columns, saved views, typed cell rendering and live reload over the existing SSE stream.
 - Row values join the full-text search: hits open the row directly (`/databases/<collection>?edit=<row>`), and the index follows edits within a quarter second — no restart.
 - Filtering and sorting run in SQL with bound parameters; `base_updated_at` gives optimistic concurrency; every row change is recorded with an actor.
-- REST API under `/api/v1/databases` and the same guarantees over MCP (`list_collections`, `get_collection`, `query_collection_rows`, `create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`); `import/preview` reports the Markdown tables of a page before any migration, `export?format=csv|json` returns a portable snapshot of one collection. See [docs/collections.md](docs/collections.md).
+- REST API under `/api/v1/databases` and the same guarantees over MCP (`list_collections`, `get_collection`, `query_collection_rows`, `create_collection_row`, `update_collection_row`, `delete_collection_row`, `save_collection_view`, `collection_history`); `import/preview` reports the Markdown tables of a page before any migration, `export?format=csv|json` returns a portable snapshot of one collection. See [docs/collections.md](docs/collections.md).
 - `GET /api/v1/export` and `npm run export` write the whole instance (all pages, all collections, versioned header) as one bundle. See [docs/export.md](docs/export.md).
 - Requires the space on local disk — SQLite must not run on the rclone/FUSE mount.
 
@@ -250,7 +250,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `GET /api/v1/diff/<path>?since=` | unified diff against a revision (id, hash prefix or ISO time) |
 | `GET /api/v1/activity?since=&actor=&folder=&page=&limit=` | revision activity across pages |
 
-**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `check_manifest`, `history`, `diff`, `activity`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `list_collections`, `get_collection`, `query_collection_rows`, `create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`, `upload_attachment`, `get_manifest`, `validate_page`.
+**MCP** (`POST /mcp`, Streamable HTTP, stateless) tools: `search`, `list_pages`, `read_page`, `write_page`, `write_pages`, `append_to_page`, `move_page`, `delete_page`, `check_links`, `check_manifest`, `history`, `diff`, `activity`, `list_tags`, `pages_by_tag`, `get_backlinks`, `query_pages`, `evaluate`, `list_collections`, `get_collection`, `query_collection_rows`, `create_collection_row`, `update_collection_row`, `delete_collection_row`, `save_collection_view`, `collection_history`, `upload_attachment`, `get_manifest`, `validate_page`.
 
 See [`docs/tools.md`](docs/tools.md) for every page operation with signature and example.
 
