@@ -124,6 +124,31 @@ export interface RowQuery {
 	aggregates?: Aggregates | null;
 }
 
+export interface BulkTarget {
+	row_id: string;
+	base_updated_at?: string;
+}
+
+export interface BulkResult {
+	batch_id: string;
+	updated: number;
+	would_update?: number;
+}
+
+export interface UndoResult {
+	batch_id: string;
+	undone: number;
+	would_undo?: number;
+}
+
+export interface BatchSummary {
+	batch_id: string;
+	at: string;
+	actor: string;
+	row_count: number;
+	undone: boolean;
+}
+
 export class CollectionError extends MdwikiError {
 	constructor(status: number, code: string, message: string, details?: Record<string, unknown>) {
 		super(status, code, message, details);
@@ -137,6 +162,25 @@ const MAX_FILTERS = 20;
 const MAX_SORTS = 5;
 /** Ceiling on aggregate entries per view; the UI builds its defaults under the same cap. */
 export const MAX_AGGREGATES = 20;
+
+/** A dry run runs the checks inside the transaction and then rolls back through this sentinel. */
+const DRY_RUN = Symbol('collections-dry-run');
+
+/** Cell equality: an absent key and a null value both mean "empty cell". */
+function cellEq(a: unknown, b: unknown): boolean {
+	return JSON.stringify(a === undefined ? null : a) === JSON.stringify(b === undefined ? null : b);
+}
+
+/** The property names whose stored values differ between two full-row snapshots. */
+function changedCellKeys(before: CellValues, after: CellValues): string[] {
+	const keys = [...new Set([...Object.keys(before), ...Object.keys(after)])];
+	return keys.filter((k) => !cellEq(before[k], after[k]));
+}
+
+function parseRevisionValues(raw: unknown): CellValues {
+	if (typeof raw !== 'string' || !raw) return {};
+	return JSON.parse(raw) as CellValues;
+}
 
 function nowIso(now = new Date()): string {
 	return now.toISOString();
@@ -231,6 +275,29 @@ export function aggregateAllowed(fn: AggregateFn, type: PropertyType): boolean {
 	if (fn === 'count' || fn === 'count_values') return true;
 	if (fn === 'sum' || fn === 'average') return type === 'number';
 	return type === 'number' || type === 'date' || type === 'text' || type === 'title' || type === 'url' || type === 'email';
+}
+
+/** Bulk targets: 1..500 rows, deduplicated by row id; the cap follows `MAX_LIMIT`. */
+function parseBulkTargets(raw: unknown): BulkTarget[] {
+	if (!Array.isArray(raw)) fail(400, 'bad_request', 'rows must be an array');
+	const out: BulkTarget[] = [];
+	const seen = new Set<string>();
+	raw.forEach((entry, i) => {
+		if (!entry || typeof entry !== 'object' || Array.isArray(entry)) fail(400, 'bad_request', `rows[${i}] must be an object`);
+		const e = entry as Record<string, unknown>;
+		const rowId = asString(e.row_id, `rows[${i}].row_id`, 80);
+		if (seen.has(rowId)) return;
+		seen.add(rowId);
+		const target: BulkTarget = { row_id: rowId };
+		if (e.base_updated_at !== undefined && e.base_updated_at !== null) {
+			if (typeof e.base_updated_at !== 'string' || !e.base_updated_at) fail(400, 'bad_request', `rows[${i}].base_updated_at must be a string`);
+			target.base_updated_at = e.base_updated_at;
+		}
+		out.push(target);
+	});
+	if (out.length === 0) fail(400, 'bad_request', 'rows must name at least one row');
+	if (out.length > MAX_LIMIT) fail(400, 'bad_request', `a batch changes at most ${MAX_LIMIT} rows`);
+	return out;
 }
 
 function clampLimit(n: unknown): number {
@@ -593,17 +660,7 @@ export class CollectionStore {
 		const next = { ...current.values, ...patch };
 		const at = nowIso();
 		this.transaction(() => {
-			for (const [name, value] of Object.entries(patch)) {
-				const prop = properties.find((p) => p.name === name)!;
-				if (value === null || value === undefined) {
-					this.db.prepare('DELETE FROM cell WHERE row_id = ? AND property_id = ?').run(rowId, prop.id);
-				} else {
-					this.db
-						.prepare('INSERT INTO cell (row_id, property_id, value) VALUES (?, ?, ?) ON CONFLICT(row_id, property_id) DO UPDATE SET value = excluded.value')
-						.run(rowId, prop.id, JSON.stringify(value));
-				}
-			}
-			this.db.prepare('UPDATE "row" SET updated_at = ? WHERE id = ? AND collection_id = ?').run(at, rowId, collectionId);
+			this.writePatch(collectionId, rowId, properties, patch, at);
 			this.record(collectionId, rowId, actor, 'update', current.values, next);
 			this.db.prepare('UPDATE collection SET updated_at = ? WHERE id = ?').run(at, collectionId);
 		});
@@ -660,6 +717,137 @@ export class CollectionStore {
 				values: r.values_json ? (JSON.parse(r.values_json as string) as Record<string, unknown>) : {}
 			}))
 		};
+	}
+
+	// ---- bulk edit and undo --------------------------------------------------------------
+
+	/**
+	 * Applies one partial patch to many rows as a single undoable batch. Everything validates
+	 * before anything writes: every row must exist and every supplied `base_updated_at` must
+	 * match, or the call fails with a named-row 409 and changes nothing. One revision per row,
+	 * all sharing a `batch_id`; `dryRun` reports `would_update` and writes nothing.
+	 */
+	bulkUpdate(collectionId: string, input: { rows: BulkTarget[]; values: unknown; actor?: string; dryRun?: boolean }): BulkResult {
+		this.get(collectionId);
+		const properties = this.properties(collectionId);
+		const targets = parseBulkTargets(input.rows);
+		const patch = this.values(properties, input.values, true);
+		if (Object.keys(patch).length === 0) fail(400, 'bad_values', 'values must change at least one property');
+		const actor = input.actor ?? 'unknown';
+		const dryRun = input.dryRun === true;
+		const batchId = randomUUID();
+		const at = nowIso();
+		let updated = 0;
+		try {
+			this.transaction(() => {
+				const currents = targets.map((t) => {
+					const row = this.getRow(collectionId, t.row_id);
+					if (t.base_updated_at && row.updated_at !== t.base_updated_at) {
+						const title = this.titleValue(properties, row.values);
+						fail(409, 'conflict', `Row "${title}" changed since it was loaded`, { row_id: row.id, title, current: row.updated_at });
+					}
+					return row;
+				});
+				updated = currents.length;
+				if (dryRun) throw DRY_RUN;
+				for (const row of currents) {
+					this.writePatch(collectionId, row.id, properties, patch, at);
+					this.record(collectionId, row.id, actor, 'update', row.values, { ...row.values, ...patch }, batchId, null);
+				}
+				this.db.prepare('UPDATE collection SET updated_at = ? WHERE id = ?').run(at, collectionId);
+			});
+		} catch (e) {
+			if (e !== DRY_RUN) throw e;
+		}
+		if (!dryRun) this.notify(collectionId);
+		return dryRun ? { batch_id: batchId, updated: 0, would_update: updated } : { batch_id: batchId, updated };
+	}
+
+	/**
+	 * Undoes a bulk batch as one new batch. For every row of the batch and every property the
+	 * batch changed, the row must still equal the batch result; a later individual edit or a
+	 * deleted row aborts the undo with a named-row 409 and changes nothing. A batch can only be
+	 * undone once; the undo carries `undo_of` and its own `batch_id`, so undoing an undo works
+	 * the same way. `dryRun` reports `would_undo` and writes nothing.
+	 */
+	undoBatch(collectionId: string, batchId: string, actor = 'unknown', dryRun = false): UndoResult {
+		this.get(collectionId);
+		const properties = this.properties(collectionId);
+		const source = asString(batchId, 'batch_id', 80);
+		const undoId = randomUUID();
+		const at = nowIso();
+		let undone = 0;
+		try {
+			this.transaction(() => {
+				const revisions = this.db
+					.prepare('SELECT * FROM revision WHERE collection_id = ? AND batch_id = ? AND row_id IS NOT NULL ORDER BY id')
+					.all(collectionId, source) as Record<string, unknown>[];
+				if (revisions.length === 0) fail(404, 'batch_not_found', `Batch "${source}" does not exist`);
+				if (this.db.prepare('SELECT 1 AS n FROM revision WHERE collection_id = ? AND undo_of = ? LIMIT 1').get(collectionId, source)) {
+					fail(400, 'batch_undone', `Batch "${source}" was already undone`);
+				}
+				const steps = revisions.map((revision) => {
+					const before = parseRevisionValues(revision.before);
+					const after = parseRevisionValues(revision.after);
+					const rowId = String(revision.row_id);
+					let row: RowRecord;
+					try {
+						row = this.getRow(collectionId, rowId);
+					} catch (e) {
+						if (e instanceof CollectionError && e.status === 404) {
+							const title = this.titleValue(properties, after);
+							fail(409, 'conflict', `Row "${title}" changed since it was loaded`, { row_id: rowId, title, current: null });
+						}
+						throw e;
+					}
+					const patch: CellValues = {};
+					for (const key of changedCellKeys(before, after)) {
+						if (!properties.some((p) => p.name === key)) continue;
+						if (!cellEq(row.values[key], after[key])) {
+							const title = this.titleValue(properties, row.values);
+							fail(409, 'conflict', `Row "${title}" changed since it was loaded`, { row_id: row.id, title, current: row.updated_at });
+						}
+						patch[key] = before[key] === undefined ? null : before[key];
+					}
+					return { row, patch };
+				});
+				undone = steps.length;
+				if (dryRun) throw DRY_RUN;
+				for (const { row, patch } of steps) {
+					this.writePatch(collectionId, row.id, properties, patch, at);
+					this.record(collectionId, row.id, actor || 'unknown', 'update', row.values, { ...row.values, ...patch }, undoId, source);
+				}
+				this.db.prepare('UPDATE collection SET updated_at = ? WHERE id = ?').run(at, collectionId);
+			});
+		} catch (e) {
+			if (e !== DRY_RUN) throw e;
+		}
+		if (!dryRun) this.notify(collectionId);
+		return dryRun ? { batch_id: source, undone: 0, would_undo: undone } : { batch_id: undoId, undone };
+	}
+
+	/** The bulk batches of a collection, newest first: when, who, how many rows, undone or not. */
+	batches(collectionId: string, limit = 20): BatchSummary[] {
+		this.get(collectionId);
+		const capped = Math.min(Math.max(1, Math.floor(Number(limit) || 1)), MAX_LIMIT);
+		const rows = this.db
+			.prepare(
+				`SELECT r.batch_id AS batch_id, MIN(r.at) AS at, MIN(r.actor) AS actor, COUNT(*) AS row_count,
+				        EXISTS (SELECT 1 FROM revision u WHERE u.collection_id = r.collection_id AND u.undo_of = r.batch_id) AS undone
+				 FROM revision r
+				 WHERE r.collection_id = ? AND r.batch_id IS NOT NULL
+				 GROUP BY r.batch_id
+				 ORDER BY MAX(r.id) DESC
+				 LIMIT ?`
+			)
+			.all(collectionId, capped) as Record<string, unknown>[];
+		return rows.map((r) => ({
+			batch_id: r.batch_id as string,
+			at: r.at as string,
+			actor: r.actor as string,
+			row_count: Number(r.row_count),
+			undone: Number(r.undone) === 1
+		}));
 	}
 
 	// ---- views ---------------------------------------------------------------------------
@@ -875,6 +1063,34 @@ export class CollectionStore {
 		return `CASE WHEN ${this.filledSql(alias)} THEN (${raw}) END`;
 	}
 
+	/**
+	 * Applies a partial patch to one row: upserts the cells it names, clears cells set to empty,
+	 * bumps `updated_at`. Property names the collection no longer has are skipped — a batch can
+	 * predate a deleted property, and its undo must not fail over a cell nobody can see.
+	 */
+	private writePatch(collectionId: string, rowId: string, properties: Property[], patch: CellValues, at: string): void {
+		for (const [name, value] of Object.entries(patch)) {
+			const prop = properties.find((p) => p.name === name);
+			if (!prop) continue;
+			if (value === null || value === undefined) {
+				this.db.prepare('DELETE FROM cell WHERE row_id = ? AND property_id = ?').run(rowId, prop.id);
+			} else {
+				this.db
+					.prepare('INSERT INTO cell (row_id, property_id, value) VALUES (?, ?, ?) ON CONFLICT(row_id, property_id) DO UPDATE SET value = excluded.value')
+					.run(rowId, prop.id, JSON.stringify(value));
+			}
+		}
+		this.db.prepare('UPDATE "row" SET updated_at = ? WHERE id = ? AND collection_id = ?').run(at, rowId, collectionId);
+	}
+
+	/** How a row is named in bulk conflict messages; a collection always has exactly one title property. */
+	private titleValue(properties: Property[], values: CellValues): string {
+		const title = properties.find((p) => p.type === 'title');
+		const value = title ? values[title.name] : undefined;
+		if (typeof value === 'string' && value.trim()) return value.trim();
+		return '(untitled)';
+	}
+
 	private filterSql(prop: Property, filter: Filter, index: number, params: Record<string, unknown>): string {
 		const id = `f${index}`;
 		const valueKey = `v${index}`;
@@ -977,9 +1193,18 @@ export class CollectionStore {
 		}
 	}
 
-	private record(collectionId: string, rowId: string | null, actor: string, op: string, before: unknown, after: unknown): void {
+	private record(
+		collectionId: string,
+		rowId: string | null,
+		actor: string,
+		op: string,
+		before: unknown,
+		after: unknown,
+		batchId: string | null = null,
+		undoOf: string | null = null
+	): void {
 		this.db
-			.prepare('INSERT INTO revision (collection_id, row_id, at, actor, op, before, after) VALUES (?, ?, ?, ?, ?, ?, ?)')
+			.prepare('INSERT INTO revision (collection_id, row_id, at, actor, op, before, after, batch_id, undo_of) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
 			.run(
 				collectionId,
 				rowId,
@@ -987,22 +1212,35 @@ export class CollectionStore {
 				actor || 'unknown',
 				op,
 				before === null || before === undefined ? null : JSON.stringify(before),
-				after === null || after === undefined ? null : JSON.stringify(after)
+				after === null || after === undefined ? null : JSON.stringify(after),
+				batchId,
+				undoOf
 			);
 	}
 
-	history(collectionId: string, rowId?: string, limit = 50): Record<string, unknown>[] {
-		const rows = rowId
-			? this.db.prepare('SELECT * FROM revision WHERE collection_id = ? AND row_id = ? ORDER BY id DESC LIMIT ?').all(collectionId, rowId, limit)
-			: this.db.prepare('SELECT * FROM revision WHERE collection_id = ? ORDER BY id DESC LIMIT ?').all(collectionId, limit);
-		return (rows as Record<string, unknown>[]).map((r) => ({
+	history(collectionId: string, rowId?: string, limit = 50, batchId?: string): Record<string, unknown>[] {
+		const where = ['collection_id = ?'];
+		const args: (string | number)[] = [collectionId];
+		if (rowId) {
+			where.push('row_id = ?');
+			args.push(rowId);
+		}
+		if (batchId) {
+			where.push('batch_id = ?');
+			args.push(batchId);
+		}
+		args.push(limit);
+		const rows = this.db.prepare(`SELECT * FROM revision WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`).all(...args) as Record<string, unknown>[];
+		return rows.map((r) => ({
 			id: r.id,
 			row_id: r.row_id,
 			at: r.at,
 			actor: r.actor,
 			op: r.op,
 			before: r.before ? JSON.parse(r.before as string) : null,
-			after: r.after ? JSON.parse(r.after as string) : null
+			after: r.after ? JSON.parse(r.after as string) : null,
+			batch_id: r.batch_id ?? null,
+			undo_of: r.undo_of ?? null
 		}));
 	}
 
