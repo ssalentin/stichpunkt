@@ -303,16 +303,15 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		'save_collection_view',
 		{
 			description:
-				'Create a saved view of a collection: name plus optional filters, sorts, columns, group_by and aggregates — everything the UI can save. Validation is the same as REST: unknown properties and function/type violations fail with 400 and change nothing. The view is not revision-tracked, so `agent` is recorded nowhere. Returns the saved view; use its `id` as `view` in query_collection_rows.',
+				'Create a saved view of a collection: name plus optional filters, sorts, columns, group_by and aggregates — everything the UI can save. Validation is the same as REST: unknown properties and function/type violations fail with 400 and change nothing. Views are not revision-tracked, so no actor is recorded. Returns the saved view; use its `id` as `view` in query_collection_rows.',
 			inputSchema: {
 				id: collectionId,
-				name: z.string().optional(),
+				name: z.string(),
 				filters: z.array(filterSchema).optional(),
 				sorts: z.array(sortSchema).optional(),
 				columns: z.array(z.string()).optional(),
 				group_by: groupSchema.optional(),
-				aggregates: aggregatesSchema.optional(),
-				agent: mcpAgent
+				aggregates: aggregatesSchema.optional()
 			}
 		},
 		({ id, name, filters, sorts, columns, group_by, aggregates }) => run(() =>

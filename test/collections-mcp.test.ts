@@ -312,7 +312,7 @@ describe('grouping and aggregates over REST and MCP', () => {
 		const client = await mcpClient();
 		const saved = await client.callTool({
 			name: 'save_collection_view',
-			arguments: { id: filmsId, name: 'MCP view', group_by: { property: 'Genre', direction: 'desc' }, aggregates: { Rating: 'max' }, agent: 'Claude' }
+			arguments: { id: filmsId, name: 'MCP view', group_by: { property: 'Genre', direction: 'desc' }, aggregates: { Rating: 'max' } }
 		});
 		expect(isErr(saved)).toBe(false);
 		const view = text(saved);
