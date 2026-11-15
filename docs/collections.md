@@ -191,12 +191,14 @@ comes back with a *Saved* notice offering *Undo bulk change*, and a *Recent bulk
 who changed how many rows when, with an Undo button per batch. On a phone the same works in the card
 list under 640px. The panel link (`?bulk=1`) also works without JavaScript. Titles stay out of the
 picker — a bulk change would rename the collection in one click. UI writes require
-`COLLECTIONS_UI_WRITE=1`, like single-row editing.
+`COLLECTIONS_UI_WRITE=1`, like single-row editing. The tick column rides grouped views too: the
+group head spans it and the footer aggregate row keeps a spacer cell in its place.
 
 ![Bulk edit panel with three rows selected](assets/bulk-edit-desktop.png)
 ![Saved notice with the undo offer and the recent batches](assets/bulk-edit-saved.png)
 ![After the undo: both batches listed, each row back to its own earlier value](assets/bulk-edit-undo.png)
 ![Card view under 640px with the same selection and panel](assets/bulk-edit-mobile.png)
+![Grouped view: three rows ticked across two groups, footer sum kept in its column](assets/bulk-grouped-desktop.png)
 
 ## Markdown migration
 
@@ -239,4 +241,6 @@ database only. A passing run ends with `WALK COMPLETE`; the capture in
 applies a batch over REST, checks one revision per row, undoes it and compares the rows' cells
 byte-for-byte against the pre-batch snapshot, then shows that a second undo is refused and a stale
 `base_updated_at` aborts with a 409 that names the row. Only the marker rows are ever written, and
-the walk deletes them again.
+the walk deletes them again. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/bulk-walk-evidence.png` shows one against a copy of the live instance (Dienste, three
+marker rows).

@@ -49,10 +49,10 @@ entirely over MCP.
 - [x] Multi-select bulk edit and undo through the existing `revision` table: batches ride a new
   `revision.batch_id`, an undo is itself a batch tagged with `undo_of`, and both are reachable
   from the UI, `/api/v1` and MCP — see [collections.md](collections.md).
-- Mobile layout under 640px: card list instead of a horizontally scrolling table, same filters and
+- [x] Mobile layout under 640px: card list instead of a horizontally scrolling table, same filters and
   sort.
 
-Exit: the three existing workflows (Bücher, Fixkosten, Lesezeichen) are usable on a phone and with
+Exit: the existing workflows (Dienste, Fixkosten, Wunschliste) are usable on a phone and with
 bulk edits, verified against the live data set.
 
 ### D. Structure (M3)
