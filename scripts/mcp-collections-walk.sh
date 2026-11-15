@@ -1,7 +1,7 @@
 #!/bin/bash
 # Acceptance walk for the collection MCP tools (issue #83): run the built server against a
 # COPY of an instance and drive all seven tools over Streamable HTTP MCP with
-# scripts/mcp-walk.mjs. Read-only against the source: space and database are copied into a
+# scripts/mcp-walk.ts. Read-only against the source: space and database are copied into a
 # temp dir first, and every write afterwards stays below that dir. The scratch row the walk
 # creates is deleted again by the walk itself. Needs node, sqlite3, curl and ss.
 #
@@ -49,7 +49,7 @@ if [ $ready -ne 0 ]; then
 fi
 echo "walk: server ready on 127.0.0.1:$PORT"
 
-( cd "$REPO" && WALK_COLLECTION="${WALK_COLLECTION:-}" node scripts/mcp-walk.mjs "http://127.0.0.1:$PORT" "$TOKEN" )
+( cd "$REPO" && WALK_COLLECTION="${WALK_COLLECTION:-}" npx tsx scripts/mcp-walk.ts "http://127.0.0.1:$PORT" "$TOKEN" )
 RC=$?
 
 kill "$PID" 2>/dev/null

@@ -129,7 +129,7 @@ visibility beyond columns, and per-cell revision display. Live updates ride the 
 
 `scripts/mcp-collections-walk.sh` runs the acceptance walk of the seven collection tools against a
 copy of an instance: it copies space and database into a temp dir, starts the built server on a
-free port and drives every tool over Streamable HTTP MCP (`scripts/mcp-walk.mjs`), including a
+free port and drives every tool over Streamable HTTP MCP (`scripts/mcp-walk.ts`), including a
 filtered query, the `409` conflict on a stale `base_updated_at`, a validation refusal and the
 revision history of the scratch row it deletes again. Every write stays below the temp dir, so the
 source instance is never touched. A passing run ends with `WALK COMPLETE`; the capture in
