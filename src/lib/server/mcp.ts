@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { BRAND } from '../brand';
 import { mcpVersion } from '../version';
 import { getCollections } from './collection-service';
-import { FILTER_OPS } from './collections';
+import { AGGREGATE_FNS, FILTER_OPS } from './collections';
 import { MdwikiError } from './errors';
 import type { Mdwiki } from './service';
 
@@ -51,6 +51,8 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	const valuesSchema = z.record(z.string(), z.unknown());
 	const filterSchema = z.object({ property: z.string(), op: z.enum(FILTER_OPS), value: z.unknown().optional() });
 	const sortSchema = z.object({ property: z.string(), direction: z.enum(['asc', 'desc']).optional() });
+	const groupSchema = z.object({ property: z.string(), direction: z.enum(['asc', 'desc']).optional() });
+	const aggregatesSchema = z.record(z.string(), z.enum(AGGREGATE_FNS));
 	const mcpAgent = z.string().optional().describe('Optional actor name recorded on the revision (default: "mcp")');
 
 	server.registerTool(
@@ -232,7 +234,7 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 		'get_collection',
 		{
 			description:
-				'Read one collection: properties (name, type, select options) and saved views. The property names returned here are the exact keys for `values` and for filters and sorts; unknown keys fail with 400 and change nothing.',
+				'Read one collection: properties (name, type, select options) and saved views. Views carry their group_by and aggregates. The property names returned here are the exact keys for `values` and for filters and sorts; unknown keys fail with 400 and change nothing.',
 			inputSchema: { id: collectionId }
 		},
 		({ id }) => run(() => {
@@ -243,17 +245,29 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	server.registerTool(
 		'query_collection_rows',
 		{
-			description: `Query rows of a collection: filters [{property, op, value}] with ops ${FILTER_OPS.join(', ')}; sorts [{property, direction}] (default asc), stacking; limit (default 100, max 500) and offset; \`view\` applies a saved view. Returns {rows,total,properties}. An unknown property or an op the property type does not support fails with 400 and changes nothing. Read only.`,
+			description: `Query rows of a collection: filters [{property, op, value}] with ops ${FILTER_OPS.join(', ')}; sorts [{property, direction}] (default asc), stacking; limit (default 100, max 500) and offset; \`view\` applies a saved view. \`group_by\` {property, direction} groups the result: rows are ordered group-first and \`groups\` carries the whole-set count per key (raw stored value; dates by day; checkbox 'true'/'false'; multi_select the exact stored combination; empty and missing cells are the null key, ordered last). \`aggregates\` {property: fn} computes over the whole filtered set with fns ${AGGREGATE_FNS.join(', ')}: count and count_values always, sum and average for numbers, min and max for number/date/text/url/email. Returns {rows,total,properties,groups,aggregates}; groups and aggregates are null when inactive. An unknown property or an op/fn the property type does not support fails with 400 and changes nothing. Read only.`,
 			inputSchema: {
 				id: collectionId,
 				filters: z.array(filterSchema).optional(),
 				sorts: z.array(sortSchema).optional(),
 				limit: z.number().int().optional(),
 				offset: z.number().int().optional(),
-				view: z.string().optional()
+				view: z.string().optional(),
+				group_by: groupSchema.optional(),
+				aggregates: aggregatesSchema.optional()
 			}
 		},
-		({ id, filters, sorts, limit, offset, view }) => run(() => getCollections().query(id, { filters, sorts: sorts?.map((s) => ({ ...s, direction: s.direction ?? 'asc' })), limit, offset, view }))
+		({ id, filters, sorts, limit, offset, view, group_by, aggregates }) => run(() =>
+			getCollections().query(id, {
+				filters,
+				sorts: sorts?.map((s) => ({ ...s, direction: s.direction ?? 'asc' })),
+				limit,
+				offset,
+				view,
+				group_by: group_by ? { property: group_by.property, direction: group_by.direction ?? 'asc' } : undefined,
+				aggregates
+			})
+		)
 	);
 	server.registerTool(
 		'create_collection_row',
@@ -284,6 +298,33 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 			getCollections().deleteRow(id, row_id, actorOf(agent));
 			return { id: row_id, deleted: true };
 		})
+	);
+	server.registerTool(
+		'save_collection_view',
+		{
+			description:
+				'Create a saved view of a collection: name plus optional filters, sorts, columns, group_by and aggregates — everything the UI can save. Validation is the same as REST: unknown properties and function/type violations fail with 400 and change nothing. The view is not revision-tracked, so `agent` is recorded nowhere. Returns the saved view; use its `id` as `view` in query_collection_rows.',
+			inputSchema: {
+				id: collectionId,
+				name: z.string().optional(),
+				filters: z.array(filterSchema).optional(),
+				sorts: z.array(sortSchema).optional(),
+				columns: z.array(z.string()).optional(),
+				group_by: groupSchema.optional(),
+				aggregates: aggregatesSchema.optional(),
+				agent: mcpAgent
+			}
+		},
+		({ id, name, filters, sorts, columns, group_by, aggregates }) => run(() =>
+			getCollections().saveView(id, {
+				name,
+				filters,
+				sorts,
+				columns,
+				group_by: group_by ? { property: group_by.property, direction: group_by.direction ?? 'asc' } : undefined,
+				aggregates
+			})
+		)
 	);
 	server.registerTool(
 		'collection_history',

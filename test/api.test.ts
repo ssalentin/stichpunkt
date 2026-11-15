@@ -421,7 +421,7 @@ describe('MCP', () => {
 		const client = await connect();
 		const names = (await client.listTools()).tools.map((t) => t.name).sort();
 		expect(names).toEqual(
-			['activity', 'append_to_page', 'check_links', 'check_manifest', 'collection_history', 'create_collection_row', 'delete_collection_row', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_collection', 'get_manifest', 'history', 'list_collections', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_collection_rows', 'query_pages', 'read_page', 'search', 'update_collection_row', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
+			['activity', 'append_to_page', 'check_links', 'check_manifest', 'collection_history', 'create_collection_row', 'delete_collection_row', 'delete_page', 'diff', 'evaluate', 'get_backlinks', 'get_collection', 'get_manifest', 'history', 'list_collections', 'list_pages', 'list_tags', 'move_page', 'pages_by_tag', 'query_collection_rows', 'query_pages', 'read_page', 'save_collection_view', 'search', 'update_collection_row', 'upload_attachment', 'validate_page', 'write_page', 'write_pages'].sort()
 		);
 	});
 
@@ -523,7 +523,7 @@ describe('MCP', () => {
 		);
 		expect(res.status).toBe(200);
 		const json = await res.json();
-		expect(json.result.tools.length).toBe(28);
+		expect(json.result.tools.length).toBe(29);
 		expect((await call(mcpRoute.GET, req('GET', '/mcp'))).status).toBe(405);
 	});
 });
