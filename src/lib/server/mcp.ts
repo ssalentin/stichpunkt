@@ -243,8 +243,7 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 	server.registerTool(
 		'query_collection_rows',
 		{
-			description:
-				'Query rows of a collection: filters [{property, op, value}] with ops eq, neq, contains, not_contains, starts_with, ends_with, gt, gte, lt, lte, is_empty, is_not_empty, any_of, none_of; sorts [{property, direction}] (default asc), stacking; limit (default 100, max 500) and offset; `view` applies a saved view. Returns {rows,total,properties}. An unknown property or an op the property type does not support fails with 400 and changes nothing. Read only.',
+			description: `Query rows of a collection: filters [{property, op, value}] with ops ${FILTER_OPS.join(', ')}; sorts [{property, direction}] (default asc), stacking; limit (default 100, max 500) and offset; \`view\` applies a saved view. Returns {rows,total,properties}. An unknown property or an op the property type does not support fails with 400 and changes nothing. Read only.`,
 			inputSchema: {
 				id: collectionId,
 				filters: z.array(filterSchema).optional(),
