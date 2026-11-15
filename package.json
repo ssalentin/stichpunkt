@@ -10,7 +10,8 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "test": "vitest run",
     "search:eval": "vitest run test/search-eval.test.ts --reporter=verbose",
-    "migrate": "tsx scripts/migrate.ts"
+    "migrate": "tsx scripts/migrate.ts",
+    "export": "tsx scripts/export.ts"
   },
   "engines": {
     "node": ">=22"

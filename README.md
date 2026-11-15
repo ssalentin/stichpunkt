@@ -89,6 +89,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - Notion-style table view at `/databases`: filter bar, click-to-sort columns, saved views, typed cell rendering and live reload over the existing SSE stream.
 - Filtering and sorting run in SQL with bound parameters; `base_updated_at` gives optimistic concurrency; every row change is recorded with an actor.
 - REST API under `/api/v1/databases`; `import/preview` reports the Markdown tables of a page before any migration, `export?format=csv|json` returns a portable snapshot of one collection. See [docs/collections.md](docs/collections.md).
+- `GET /api/v1/export` and `npm run export` write the whole instance (all pages, all collections, versioned header) as one bundle. See [docs/export.md](docs/export.md).
 - Requires the space on local disk — SQLite must not run on the rclone/FUSE mount.
 
 
@@ -243,6 +244,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 | `POST /api/v1/pages/move` | `{from, to, dry_run?, overwrite?}` → `{from, to, dry_run, moved, rewritten, unresolved, warnings, hash, previous_hash?}` |
 | `POST /api/v1/pages/batch` | `{pages: [{path, content, base_hash?}], dry_run?}` → `{dry_run, written}` |
 | `GET /api/v1/links?path=&include_hidden=` | `{dead, ambiguous, orphans, anchors, counts}` |
+| `GET /api/v1/export` | the whole instance as one JSON bundle (pages plus all collections); see [docs/export.md](docs/export.md) |
 | `GET /api/v1/history/<path>?limit=` | revision list, newest first |
 | `GET /api/v1/diff/<path>?since=` | unified diff against a revision (id, hash prefix or ISO time) |
 | `GET /api/v1/activity?since=&actor=&folder=&page=&limit=` | revision activity across pages |
@@ -320,6 +322,10 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 - `write` takes the write lock with `BEGIN IMMEDIATE` and rolls it back: it proves the write path without inserting a row or a revision.
 - `deployed` reports the commit in `deployed.sha`; before the first deploy the file is missing and still `ok`.
 - `backup` fails when the last `backup ok` entry is older than 36 hours.
+
+### Export
+
+`GET /api/v1/export` returns the whole instance as one JSON bundle (every page, every collection, format version and timestamp in the header); `npm run export` writes the same bundle as a directory tree without a running server. The restore procedure and the limitations (binary attachments are not included) are documented in [docs/export.md](docs/export.md).
 
 ### Deploy gate
 
