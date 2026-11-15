@@ -55,6 +55,45 @@ function legacyDatabase(file: string): void {
 	db.close();
 }
 
+function v1Database(file: string): void {
+	const db = new DatabaseSync(file);
+	db.exec(BASELINE_SCHEMA);
+	db.exec('PRAGMA user_version = 1');
+	db.prepare('INSERT INTO collection (id, name, icon, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(
+		'c1',
+		'Bücher',
+		null,
+		'2026-01-01T00:00:00.000Z',
+		'2026-01-01T00:00:00.000Z'
+	);
+	db.prepare('INSERT INTO property (id, collection_id, name, type, options, position) VALUES (?, ?, ?, ?, ?, ?)').run(
+		'p1',
+		'c1',
+		'Titel',
+		'title',
+		null,
+		0
+	);
+	db.prepare('INSERT INTO "row" (id, collection_id, created_at, updated_at, position) VALUES (?, ?, ?, ?, ?)').run(
+		'r1',
+		'c1',
+		'2026-01-01T00:00:00.000Z',
+		'2026-01-01T00:00:00.000Z',
+		0
+	);
+	db.prepare('INSERT INTO cell (row_id, property_id, value) VALUES (?, ?, ?)').run('r1', 'p1', JSON.stringify('Die Welt'));
+	db.prepare("INSERT INTO \"view\" (id, collection_id, name, filters, sorts, columns, position) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
+		'v1',
+		'c1',
+		'Alle',
+		'[]',
+		'[]',
+		null,
+		0
+	);
+	db.close();
+}
+
 function backups(file: string): string[] {
 	return fs.readdirSync(path.dirname(file)).filter((name) => name.startsWith(path.basename(file) + '.pre-migration-') && name.endsWith('.bak'));
 }
@@ -65,14 +104,15 @@ describe('schema migrations', () => {
 		const lines: string[] = [];
 
 		const first = runMigrations(new DatabaseSync(file), file, { backup: false, logger: (line) => lines.push(line) });
-		expect(first).toMatchObject({ from: 0, to: 1, backupFile: null });
-		expect(first.applied.map((m) => m.version)).toEqual([1]);
+		expect(first).toMatchObject({ from: 0, to: 2, backupFile: null });
+		expect(first.applied.map((m) => m.version)).toEqual([1, 2]);
 		expect(lines).toContain('applied v1 baseline');
-		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
+		expect(lines).toContain('applied v2 view-grouping');
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
 
 		const second = runMigrations(new DatabaseSync(file), file, { logger: (line) => lines.push(line) });
-		expect(second).toMatchObject({ from: 1, to: 1, applied: [], pending: [] });
-		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
+		expect(second).toMatchObject({ from: 2, to: 2, applied: [], pending: [] });
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
 		expect(backups(file)).toHaveLength(0);
 	});
 
@@ -89,9 +129,10 @@ describe('schema migrations', () => {
 		reopened.close();
 
 		const db = new DatabaseSync(file);
-		expect(schemaVersion(db)).toBe(1);
+		expect(schemaVersion(db)).toBe(2);
 		db.close();
 	});
+
 
 	it('adopts a pre-migration database without touching its rows and backs it up first', () => {
 		const file = path.join(workspace(), 'collections.sqlite');
@@ -103,7 +144,7 @@ describe('schema migrations', () => {
 		expect(store.query('c1').rows[0].values).toEqual({ Titel: 'Die Welt' });
 		store.close();
 
-		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
 		const copies = backups(file);
 		expect(copies).toHaveLength(1);
 
@@ -120,7 +161,7 @@ describe('schema migrations', () => {
 		const result = runMigrations(new DatabaseSync(file), file, { dryRun: true, logger: (line) => lines.push(line) });
 
 		expect(result).toMatchObject({ from: 0, to: 0, applied: [], backupFile: null });
-		expect(result.pending.map((m) => m.version)).toEqual([1]);
+		expect(result.pending.map((m) => m.version)).toEqual([1, 2]);
 		expect(lines.join('\n')).toMatch(/pending v1 baseline \(dry run, nothing written\)/);
 		expect(schemaVersion(new DatabaseSync(file))).toBe(0);
 		expect(backups(file)).toHaveLength(0);
@@ -135,15 +176,15 @@ describe('schema migrations', () => {
 		const broken: Migration[] = [
 			...MIGRATIONS,
 			{
-				version: 2,
+				version: 3,
 				name: 'half-written',
 				sql: 'CREATE TABLE scratch (id TEXT); INSERT INTO missing_table (id) VALUES (1);'
 			},
-			{ version: 3, name: 'never-reached', sql: 'CREATE TABLE later (id TEXT);' }
+			{ version: 4, name: 'never-reached', sql: 'CREATE TABLE later (id TEXT);' }
 		];
 
-		expect(() => runMigrations(new DatabaseSync(file), file, { migrations: broken })).toThrowError(/Migration v2 \(half-written\) failed/);
-		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
+		expect(() => runMigrations(new DatabaseSync(file), file, { migrations: broken })).toThrowError(/Migration v3 \(half-written\) failed/);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
 
 		const db = new DatabaseSync(file);
 		const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name);
@@ -165,14 +206,14 @@ describe('schema migrations', () => {
 		legacyDatabase(file);
 		runMigrations(new DatabaseSync(file), file);
 
-		const next: Migration[] = [...MIGRATIONS, { version: 2, name: 'add-index', sql: 'CREATE INDEX cell_value ON cell(value);' }];
+		const next: Migration[] = [...MIGRATIONS, { version: 3, name: 'add-index', sql: 'CREATE INDEX cell_value ON cell(value);' }];
 		const lines: string[] = [];
 		const result = runMigrations(new DatabaseSync(file), file, { migrations: next, logger: (line) => lines.push(line) });
 
-		expect(result).toMatchObject({ from: 1, to: 2 });
+		expect(result).toMatchObject({ from: 2, to: 3 });
 		expect(result.applied.map((m) => m.name)).toEqual(['add-index']);
-		expect(lines).toContain('applied v2 add-index');
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(lines).toContain('applied v3 add-index');
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 
 		const again = runMigrations(new DatabaseSync(file), file, { migrations: next, logger: (line) => lines.push(line) });
 		expect(again.applied).toEqual([]);
