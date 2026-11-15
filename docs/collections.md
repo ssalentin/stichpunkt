@@ -98,6 +98,8 @@ The key is the raw stored value, so each group holds the rows that store exactly
 Group counts cover the whole filtered set, not the returned page, so a group split across pages
 keeps its true count. The UI renders one collapsible section per group; collapsed keys travel in the
 `collapsed` URL parameter, percent-encoded and comma-joined, and their rows are hidden server-side.
+`docs/assets/grouping-desktop.png` and `docs/assets/grouping-mobile.png` show a grouped Fixkosten
+view (sections with counts, one collapsed group, aggregate footer) on desktop and below 640px.
 
 `aggregates: {property: fn}` computes one footer value per column over the whole filtered set; the
 response carries `aggregates: {property: {fn, value}}`. Functions and the types they accept:
@@ -173,18 +175,27 @@ to decide which one becomes canonical.
 
 The implemented subset follows Notion's database model: one row per record, typed properties,
 table view, filters, multi-key sorts, saved views per database, collapsible grouping with per-group
-counts and footer aggregates. Not implemented yet: inline cell
-editing, board/calendar/timeline layouts, relations/rollups/formulas, per-group aggregates, per-view property
-visibility beyond columns, and per-cell revision display. Live updates ride the existing SSE stream
-(`/_ui/events`), so an open table reloads when a row changes.
+counts and footer aggregates. Not implemented yet: inline cell editing, board/calendar/timeline
+layouts, relations/rollups/formulas, per-group aggregates, per-view property visibility beyond
+columns, and per-cell revision display. Live updates ride the existing SSE stream (`/_ui/events`),
+so an open table reloads when a row changes.
 
 ## Verification
 
 `scripts/mcp-collections-walk.sh` runs the acceptance walk of the seven row-facing collection tools
-(`save_collection_view` is not yet in the walk) against a
+(`save_collection_view` is walked by `scripts/grouping-walk.sh` instead) against a
 copy of an instance: it copies space and database into a temp dir, starts the built server on a
 free port and drives every tool over Streamable HTTP MCP (`scripts/mcp-walk.ts`), including a
 filtered query, the `409` conflict on a stale `base_updated_at`, a validation refusal and the
 revision history of the scratch row it deletes again. Every write stays below the temp dir, so the
 source instance is never touched. A passing run ends with `WALK COMPLETE`; the capture in
 `docs/assets/mcp-collections-evidence.png` shows one against a copy of the live instance.
+
+`scripts/grouping-walk.sh` runs the acceptance walk of grouping and aggregates against a copy:
+whole-set group counts (sum equals total, one key recounted row-by-row), the number sum recomputed
+with `jq`, the saved-view round trip over REST (`views` POST, query through `{view: id}`, `views`
+GET echo) and over MCP (`query_collection_rows`, `save_collection_view`), the `400` refusals
+(`bad_aggregate`, `bad_group`), and an isolation proof that the walk's view exists in the copy's
+database only. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/grouping-walk-evidence.png` shows one against a copy of the live instance
+(Fixkosten grouped by Status).
