@@ -132,7 +132,8 @@ const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 const MAX_FILTERS = 20;
 const MAX_SORTS = 5;
-const MAX_AGGREGATES = 20;
+/** Ceiling on aggregate entries per view; the UI builds its defaults under the same cap. */
+export const MAX_AGGREGATES = 20;
 
 function nowIso(now = new Date()): string {
 	return now.toISOString();
@@ -223,7 +224,7 @@ function parseAggregates(raw: unknown): Aggregates {
 }
 
 /** Per-type allowances: count/count_values always; sum/average numbers; min/max ordered scalars. */
-function aggregateAllowed(fn: AggregateFn, type: PropertyType): boolean {
+export function aggregateAllowed(fn: AggregateFn, type: PropertyType): boolean {
 	if (fn === 'count' || fn === 'count_values') return true;
 	if (fn === 'sum' || fn === 'average') return type === 'number';
 	return type === 'number' || type === 'date' || type === 'text' || type === 'url' || type === 'email';
