@@ -5,6 +5,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { handle } from '../src/hooks.server';
+import { getCollections } from '../src/lib/server/collection-service';
 import { buildMcpServer } from '../src/lib/server/mcp';
 import { mcpVersion } from '../src/lib/version';
 import { makeMdwiki } from './helpers';
@@ -30,6 +31,8 @@ let checkManifestRoute: typeof import('../src/routes/api/v1/manifest/check/+serv
 let activityRoute: typeof import('../src/routes/api/v1/activity/+server');
 let mcpRoute: typeof import('../src/routes/mcp/+server');
 let fileRoute: typeof import('../src/routes/f/[...path]/+server');
+let bulkRowsRoute: typeof import('../src/routes/api/v1/databases/[id]/rows/bulk/+server');
+let undoBatchRoute: typeof import('../src/routes/api/v1/databases/[id]/rows/bulk/[batchId]/undo/+server');
 
 beforeAll(async () => {
 	const made = await makeMdwiki();
@@ -56,6 +59,8 @@ beforeAll(async () => {
 	activityRoute = await import('../src/routes/api/v1/activity/+server');
 	mcpRoute = await import('../src/routes/mcp/+server');
 	fileRoute = await import('../src/routes/f/[...path]/+server');
+	bulkRowsRoute = await import('../src/routes/api/v1/databases/[id]/rows/bulk/+server');
+	undoBatchRoute = await import('../src/routes/api/v1/databases/[id]/rows/bulk/[batchId]/undo/+server');
 	const svc = await import('../src/lib/server/service');
 	// the singleton must stop polling when tests end
 	afterAll(async () => (await svc.getMdwiki()).stop());
@@ -752,5 +757,82 @@ layers:
 		expect(restList.total).toBe(1);
 		const restQuery = await (await call(queryRoute.POST, req('POST', '/api/v1/query', { folder: 'Work', include_working: true }))).json();
 		expect(restQuery.rows.map((r: { layer: string }) => r.layer)).toEqual(['working']);
+	});
+});
+
+describe('REST: bulk edit and undo', () => {
+	let seq = 0;
+	const setup = () => {
+		const store = getCollections();
+		const c = store.create({
+			name: `Bulk Filme ${++seq}`,
+			properties: [
+				{ name: 'Titel', type: 'title' },
+				{ name: 'Status', type: 'select', options: ['offen', 'erledigt'] },
+				{ name: 'Notiz', type: 'text' }
+			]
+		});
+		const rows = ['A', 'B', 'C'].map((t) => store.createRow(c.id, { Titel: t, Status: 'offen' }, 'seed'));
+		return { store, c, rows };
+	};
+	const bulk = (body: unknown, id: string) => call(bulkRowsRoute.POST, req('POST', '/x', body), { id });
+	const undo = (batchId: string, body: unknown, id: string) => call(undoBatchRoute.POST, req('POST', '/x', body), { id, batchId });
+
+	it('applies a batch and undoes it as a new batch', async () => {
+		const { store, c, rows } = setup();
+		const res = await bulk({ rows: rows.map((r) => ({ id: r.id, base_updated_at: r.updated_at })), values: { Status: 'erledigt' }, actor: 'curl' }, c.id);
+		expect(res.status).toBe(200);
+		const made = await res.json();
+		expect(made).toEqual({ batch_id: expect.any(String), updated: 3 });
+		expect(store.query(c.id).rows.every((r) => r.values.Status === 'erledigt')).toBe(true);
+
+		const dry = await bulk({ rows: rows.map((r) => ({ row_id: r.id })), values: { Status: 'offen' }, dry_run: true }, c.id);
+		expect(await dry.json()).toEqual({ batch_id: expect.any(String), would_update: 3 }); // `updated` stays out of dry runs
+
+		const u = await undo(made.batch_id, {}, c.id);
+		expect(u.status).toBe(200);
+		const undone = await u.json();
+		expect(undone).toEqual({ batch_id: expect.any(String), undone: 3 });
+		expect(undone.batch_id).not.toBe(made.batch_id);
+		expect(store.query(c.id).rows.map((r) => r.values.Status)).toEqual(['offen', 'offen', 'offen']);
+		expect(store.history(c.id, rows[0].id)[0]).toMatchObject({ batch_id: undone.batch_id, undo_of: made.batch_id, actor: 'api' });
+
+		const again = await undo(made.batch_id, {}, c.id);
+		expect(again.status).toBe(400);
+		expect((await again.json()).error).toBe('batch_undone');
+	});
+
+	it('dry-runs an undo under the source batch id', async () => {
+		const { c, rows } = setup();
+		const made = await (await bulk({ rows: rows.map((r) => ({ id: r.id })), values: { Status: 'erledigt' } }, c.id)).json();
+		const dry = await undo(made.batch_id, { dry_run: true }, c.id);
+		expect(await dry.json()).toEqual({ batch_id: made.batch_id, would_undo: 3 });
+	});
+
+	it('names the conflicting row in the 409 body and writes nothing', async () => {
+		const { store, c, rows } = setup();
+		const res = await bulk(
+			{ rows: [{ id: rows[0].id, base_updated_at: rows[0].updated_at }, { id: rows[1].id, base_updated_at: '2000-01-01T00:00:00.000Z' }, { id: rows[2].id }], values: { Status: 'erledigt' } },
+			c.id
+		);
+		expect(res.status).toBe(409);
+		const body = await res.json();
+		expect(body).toMatchObject({ error: 'conflict', message: 'Row "B" changed since it was loaded', row_id: rows[1].id, title: 'B' });
+		expect(typeof body.current).toBe('string');
+		expect(store.query(c.id).rows.every((r) => r.values.Status === 'offen')).toBe(true);
+	});
+
+	it('rejects malformed bodies', async () => {
+		const { c, rows } = setup();
+		const bad = await bulk({ rows: 'x', values: { Status: 'erledigt' } }, c.id);
+		expect(bad.status).toBe(400);
+		const empty = await bulk({ rows: [], values: { Status: 'erledigt' } }, c.id);
+		expect(empty.status).toBe(400);
+		const noValues = await bulk({ rows: [{ id: rows[0].id }], values: {} }, c.id);
+		expect(noValues.status).toBe(400);
+		const unknown = await bulk({ rows: [{ id: 'nope' }], values: { Status: 'erledigt' } }, c.id);
+		expect(unknown.status).toBe(404);
+		const missingBatch = await undo('does-not-exist', {}, c.id);
+		expect(missingBatch.status).toBe(404);
 	});
 });
