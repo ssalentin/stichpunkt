@@ -16,13 +16,17 @@ import { DatabaseSync } from 'node:sqlite';
  * written next to the database and is only skipped for a file that does not exist yet or for
  * `:memory:`.
  *
- * Adding a migration: append a step with the next version, never edit a published step. The SQL
+ * Adding a migration: append a step with a higher version, never edit a published step. The SQL
  * must be idempotent where it touches pre-migration databases (see step 1, which also adopts
  * databases created before migrations existed).
+ *
+ * Versions must strictly increase, but a gap is allowed: parallel branches are assigned their
+ * version numbers up front, so a feature branch can carry v1 and v3 while v2 lands from the
+ * sibling branch. The runner only applies steps above `user_version`, so the gap is harmless.
  */
 
 export interface Migration {
-	/** Applied version after this step; strictly increasing, starting at 1. */
+	/** Applied version after this step; strictly increasing. Steps from parallel branches may leave a gap. */
 	version: number;
 	/** Short, stable name used in logs and error messages. */
 	name: string;
@@ -129,6 +133,17 @@ export const MIGRATIONS: readonly Migration[] = [
 		// Nullable JSON text columns, following the filters/sorts/columns pattern. The user_version
 		// gate runs each step exactly once, so a plain ALTER is safe here.
 		sql: 'ALTER TABLE "view" ADD COLUMN group_by TEXT; ALTER TABLE "view" ADD COLUMN aggregates TEXT;'
+	},
+	{
+		// Authored while version 2 still lived on the sibling branch (issue #85); the runner
+		// accepted the gap then, and the list is contiguous again now that both have merged.
+		version: 3,
+		name: 'revision-batch',
+		sql: `
+ALTER TABLE revision ADD COLUMN batch_id TEXT;
+ALTER TABLE revision ADD COLUMN undo_of TEXT;
+CREATE INDEX IF NOT EXISTS revision_batch ON revision(collection_id, batch_id);
+`
 	}
 ];
 
@@ -140,13 +155,15 @@ function defaultLogger(line: string): void {
 }
 
 function validate(migrations: readonly Migration[]): void {
-	let expected = 1;
+	let previous = 0;
 	for (const migration of migrations) {
-		if (migration.version !== expected) {
-			throw new MigrationError(`Migration list is not contiguous: expected version ${expected}, got ${migration.version} (${migration.name})`);
+		if (migration.version <= previous) {
+			throw new MigrationError(
+				`Migration list is not strictly increasing: expected a version above ${previous}, got ${migration.version} (${migration.name})`
+			);
 		}
 		if (!migration.name.trim()) throw new MigrationError(`Migration ${migration.version} has no name`);
-		expected += 1;
+		previous = migration.version;
 	}
 }
 

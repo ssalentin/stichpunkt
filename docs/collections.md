@@ -5,7 +5,7 @@ view over page frontmatter: rows, properties, cells and saved views live in SQLi
 them at `/databases`, and agents work with them over the REST API under `/api/v1/databases` and the
 matching MCP tools (`list_collections`, `get_collection`, `query_collection_rows`,
 `create_collection_row`, `update_collection_row`, `delete_collection_row`, `save_collection_view`,
-`collection_history`).
+`bulk_update_collection_rows`, `undo_collection_batch`, `collection_history`).
 Both paths call the same service layer, so validation and conflict behaviour are identical.
 
 ## Where the data lives
@@ -27,10 +27,13 @@ Backups must copy the database through SQLite, not as a raw file: `sqlite3 colle
 
 ## Schema migrations
 
-The schema has a version, currently **2**, stored in `PRAGMA user_version`. The ordered migration
-list lives in `src/lib/server/migrations.ts`; step 1 is the baseline that also adopts databases created
+The schema has a version, currently **3**, stored in `PRAGMA user_version`. The ordered migration list
+lives in `src/lib/server/migrations.ts`; step 1 is the baseline that also adopts databases created
 before migrations existed (its `CREATE TABLE IF NOT EXISTS` statements are what the app used to run
-on every start).
+on every start), step 2 adds the view-grouping columns (`group_by`, `aggregates`) that grouping and
+column aggregates read, and step 3 adds the revision-batch columns (`batch_id`, `undo_of`) that bulk
+edit and undo write. Versions must strictly increase but need not be contiguous — a build may legitimately
+skip a step another branch owns.
 
 - The runner executes on the first `CollectionStore.open`, i.e. on boot, before the store is used.
 - All pending steps of one run are committed in a single transaction together with their
@@ -65,7 +68,7 @@ that has shipped: production databases have already recorded its version.
 | `row` | id, collection, timestamps, position |
 | `cell` | `(row, property) → value`; the value is JSON, typed through the property |
 | `view` | name, filters, sorts, visible columns, group_by, aggregates, position |
-| `revision` | every row create/update/delete with actor and before/after values |
+| `revision` | every row create/update/delete with actor and before/after values; bulk changes share a `batch_id`, undo revisions carry `undo_of` |
 
 Property types: `title`, `text`, `number`, `select`, `multi_select`, `date`, `checkbox`, `url`, `email`.
 A cell is a row in `cell`, not a serialized blob — filtering and sorting happen in SQL.
@@ -146,6 +149,8 @@ GET    /api/v1/databases/:id/rows?view=&limit=&offset=&group=prop&filter=prop:op
 POST   /api/v1/databases/:id/rows                {values:{...}, actor?}
 PATCH  /api/v1/databases/:id/rows/:rowId         {values:{...}, actor?, base_updated_at?}
 DELETE /api/v1/databases/:id/rows/:rowId
+POST   /api/v1/databases/:id/rows/bulk           {rows:[{id, base_updated_at?}], values:{...}, actor?, dry_run?}
+POST   /api/v1/databases/:id/rows/bulk/:batchId/undo  {actor?, dry_run?}
 POST   /api/v1/databases/:id/query               {filters, sorts, limit, offset, view, group_by, aggregates}
 
 GET    /api/v1/databases/:id/views
@@ -163,6 +168,37 @@ quote or line break; JSON keeps property types, options and row ids. An export c
 500-row query limit because the service pages internally. For the whole instance (all pages plus all
 collections with a versioned header) see [docs/export.md](export.md).
 
+
+## Bulk edit and undo
+
+A bulk change sets one or more properties to the same values across up to 500 named rows and is one
+undoable batch. Everything is checked before anything is written: an unknown row, a stale
+`base_updated_at`, a bad value or an empty patch fails and changes no row at all. A conflict answers
+`409` and names the row — `{error: "conflict", message: "Row \"<title>\" changed since it was loaded",
+row_id, title, current}` — so an agent learns which row to re-read instead of guessing.
+
+Each row keeps its own `revision` under a shared `batch_id`; single-row edits never join a batch.
+`undo` reverses the batch as one **new** batch whose revisions carry `undo_of`, restoring each row to
+what it held before the change (rows that differed before stay different after). Undo checks first
+that every row still holds what the batch wrote — a later edit to a batch property, or a deleted row,
+answers the same named-row `409` and rolls back nothing. A batch can only be undone once; undoing an
+undo re-applies the change the same way. Both endpoints take `dry_run`, which validates and reports
+`would_update` / `would_undo` without writing; the undo dry run names the checked source batch.
+`collection_history` filters by `batch_id` — the revisions of one batch, or of its undo.
+
+In the UI, tick rows in table or card view, choose a property in the bulk panel and apply; the page
+comes back with a *Saved* notice offering *Undo bulk change*, and a *Recent bulk changes* list shows
+who changed how many rows when, with an Undo button per batch. On a phone the same works in the card
+list under 640px. The panel link (`?bulk=1`) also works without JavaScript. Titles stay out of the
+picker — a bulk change would rename the collection in one click. UI writes require
+`COLLECTIONS_UI_WRITE=1`, like single-row editing. The tick column rides grouped views too: the
+group head spans it and the footer aggregate row keeps a spacer cell in its place.
+
+![Bulk edit panel with three rows selected](assets/bulk-edit-desktop.png)
+![Saved notice with the undo offer and the recent batches](assets/bulk-edit-saved.png)
+![After the undo: both batches listed, each row back to its own earlier value](assets/bulk-edit-undo.png)
+![Card view under 640px with the same selection and panel](assets/bulk-edit-mobile.png)
+![Grouped view: three rows ticked across two groups, footer sum kept in its column](assets/bulk-grouped-desktop.png)
 
 ## Markdown migration
 
@@ -199,3 +235,12 @@ GET echo) and over MCP (`query_collection_rows`, `save_collection_view`), the `4
 database only. A passing run ends with `WALK COMPLETE`; the capture in
 `docs/assets/grouping-walk-evidence.png` shows one against a copy of the live instance
 (Fixkosten grouped by Status).
+
+`scripts/collections-bulk-walk.sh` walks bulk edit and undo the same way, against a copy given by
+`SOURCE_SPACE` and `SOURCE_DB`: it creates three marker rows, proves a dry run writes nothing,
+applies a batch over REST, checks one revision per row, undoes it and compares the rows' cells
+byte-for-byte against the pre-batch snapshot, then shows that a second undo is refused and a stale
+`base_updated_at` aborts with a 409 that names the row. Only the marker rows are ever written, and
+the walk deletes them again. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/bulk-walk-evidence.png` shows one against a copy of the live instance (Dienste, three
+marker rows).

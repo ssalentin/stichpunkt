@@ -104,16 +104,35 @@ describe('schema migrations', () => {
 		const lines: string[] = [];
 
 		const first = runMigrations(new DatabaseSync(file), file, { backup: false, logger: (line) => lines.push(line) });
-		expect(first).toMatchObject({ from: 0, to: 2, backupFile: null });
-		expect(first.applied.map((m) => m.version)).toEqual([1, 2]);
+		expect(first).toMatchObject({ from: 0, to: 3, backupFile: null });
+		expect(first.applied.map((m) => m.version)).toEqual([1, 2, 3]);
 		expect(lines).toContain('applied v1 baseline');
 		expect(lines).toContain('applied v2 view-grouping');
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(lines).toContain('applied v3 revision-batch');
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 
 		const second = runMigrations(new DatabaseSync(file), file, { logger: (line) => lines.push(line) });
-		expect(second).toMatchObject({ from: 2, to: 2, applied: [], pending: [] });
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(second).toMatchObject({ from: 3, to: 3, applied: [], pending: [] });
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 		expect(backups(file)).toHaveLength(0);
+	});
+
+	it('v3 adds the batch columns and the batch index to revision', () => {
+		const file = path.join(workspace(), 'collections.sqlite');
+		const store = CollectionStore.open(file);
+		store.close();
+
+		const db = new DatabaseSync(file);
+		const columns = (db.prepare("SELECT name FROM pragma_table_info('revision')").all() as { name: string }[]).map((c) => c.name);
+		expect(columns).toEqual(expect.arrayContaining(['batch_id', 'undo_of']));
+
+		const index = db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'index' AND name = 'revision_batch'").get() as
+			| { name: string; sql: string }
+			| undefined;
+		expect(index).toBeDefined();
+		expect(index?.sql).toContain('collection_id');
+		expect(index?.sql).toContain('batch_id');
+		db.close();
 	});
 
 	it('opens a store twice without error and keeps rows', () => {
@@ -129,12 +148,12 @@ describe('schema migrations', () => {
 		reopened.close();
 
 		const db = new DatabaseSync(file);
-		expect(schemaVersion(db)).toBe(2);
+		expect(schemaVersion(db)).toBe(3);
 		db.close();
 	});
 
 
-	it('applies v2 to a v1 database and keeps the existing view', () => {
+	it('applies v2 and v3 to a v1 database and keeps the existing view', () => {
 		const file = path.join(workspace(), 'collections.sqlite');
 		v1Database(file);
 		expect(schemaVersion(new DatabaseSync(file))).toBe(1);
@@ -145,17 +164,19 @@ describe('schema migrations', () => {
 		expect(store.query('c1').rows[0].values).toEqual({ Titel: 'Die Welt' });
 		store.close();
 
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 		const db = new DatabaseSync(file);
 		const columns = (db.prepare('PRAGMA table_info("view")').all() as { name: string }[]).map((c) => c.name);
 		expect(columns).toEqual(expect.arrayContaining(['group_by', 'aggregates']));
+		const revColumns = (db.prepare('PRAGMA table_info(revision)').all() as { name: string }[]).map((c) => c.name);
+		expect(revColumns).toEqual(expect.arrayContaining(['batch_id', 'undo_of']));
 		db.close();
 
-		// a second open at v2 applies nothing and changes nothing
+		// a second open at v3 applies nothing and changes nothing
 		const again = CollectionStore.open(file);
 		expect(again.views('c1')).toMatchObject([{ id: 'v1', group_by: null, aggregates: {} }]);
 		again.close();
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 		expect(backups(file)).toHaveLength(1);
 	});
 	it('adopts a pre-migration database without touching its rows and backs it up first', () => {
@@ -168,7 +189,7 @@ describe('schema migrations', () => {
 		expect(store.query('c1').rows[0].values).toEqual({ Titel: 'Die Welt' });
 		store.close();
 
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 		const copies = backups(file);
 		expect(copies).toHaveLength(1);
 
@@ -185,8 +206,10 @@ describe('schema migrations', () => {
 		const result = runMigrations(new DatabaseSync(file), file, { dryRun: true, logger: (line) => lines.push(line) });
 
 		expect(result).toMatchObject({ from: 0, to: 0, applied: [], backupFile: null });
-		expect(result.pending.map((m) => m.version)).toEqual([1, 2]);
+		expect(result.pending.map((m) => m.version)).toEqual([1, 2, 3]);
 		expect(lines.join('\n')).toMatch(/pending v1 baseline \(dry run, nothing written\)/);
+		expect(lines.join('\n')).toMatch(/pending v2 view-grouping \(dry run, nothing written\)/);
+		expect(lines.join('\n')).toMatch(/pending v3 revision-batch \(dry run, nothing written\)/);
 		expect(schemaVersion(new DatabaseSync(file))).toBe(0);
 		expect(backups(file)).toHaveLength(0);
 	});
@@ -200,15 +223,15 @@ describe('schema migrations', () => {
 		const broken: Migration[] = [
 			...MIGRATIONS,
 			{
-				version: 3,
+				version: 4,
 				name: 'half-written',
 				sql: 'CREATE TABLE scratch (id TEXT); INSERT INTO missing_table (id) VALUES (1);'
 			},
-			{ version: 4, name: 'never-reached', sql: 'CREATE TABLE later (id TEXT);' }
+			{ version: 5, name: 'never-reached', sql: 'CREATE TABLE later (id TEXT);' }
 		];
 
-		expect(() => runMigrations(new DatabaseSync(file), file, { migrations: broken })).toThrowError(/Migration v3 \(half-written\) failed/);
-		expect(schemaVersion(new DatabaseSync(file))).toBe(2);
+		expect(() => runMigrations(new DatabaseSync(file), file, { migrations: broken })).toThrowError(/Migration v4 \(half-written\) failed/);
+		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
 
 		const db = new DatabaseSync(file);
 		const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name);
@@ -230,21 +253,21 @@ describe('schema migrations', () => {
 		legacyDatabase(file);
 		runMigrations(new DatabaseSync(file), file);
 
-		const next: Migration[] = [...MIGRATIONS, { version: 3, name: 'add-index', sql: 'CREATE INDEX cell_value ON cell(value);' }];
+		const next: Migration[] = [...MIGRATIONS, { version: 4, name: 'add-index', sql: 'CREATE INDEX cell_value ON cell(value);' }];
 		const lines: string[] = [];
 		const result = runMigrations(new DatabaseSync(file), file, { migrations: next, logger: (line) => lines.push(line) });
 
-		expect(result).toMatchObject({ from: 2, to: 3 });
+		expect(result).toMatchObject({ from: 3, to: 4 });
 		expect(result.applied.map((m) => m.name)).toEqual(['add-index']);
-		expect(lines).toContain('applied v3 add-index');
-		expect(schemaVersion(new DatabaseSync(file))).toBe(3);
+		expect(lines).toContain('applied v4 add-index');
+		expect(schemaVersion(new DatabaseSync(file))).toBe(4);
 
 		const again = runMigrations(new DatabaseSync(file), file, { migrations: next, logger: (line) => lines.push(line) });
 		expect(again.applied).toEqual([]);
 		expect(backups(file)).toHaveLength(2);
 	});
 
-	it('refuses a database newer than the build and a non-contiguous list', () => {
+	it('refuses a database newer than the build and a non-increasing list', () => {
 		const file = path.join(workspace(), 'collections.sqlite');
 		const db = new DatabaseSync(file);
 		db.exec(BASELINE_SCHEMA);
@@ -254,10 +277,23 @@ describe('schema migrations', () => {
 		expect(() => runMigrations(db, file)).toThrowError(/newer database/);
 		expect(() =>
 			pendingMigrations(0, [
-				{ version: 1, name: 'a', sql: '' },
-				{ version: 3, name: 'b', sql: '' }
+				{ version: 3, name: 'a', sql: '' },
+				{ version: 1, name: 'b', sql: '' }
 			])
-		).toThrowError(/not contiguous/);
+		).toThrowError(/not strictly increasing/);
+		expect(() =>
+			pendingMigrations(0, [
+				{ version: 1, name: 'a', sql: '' },
+				{ version: 1, name: 'b', sql: '' }
+			])
+		).toThrowError(/not strictly increasing/);
+
+		// a gap is accepted: parallel branches are pre-assigned their version numbers
+		const gapped = pendingMigrations(0, [
+			{ version: 1, name: 'a', sql: '' },
+			{ version: 3, name: 'b', sql: '' }
+		]);
+		expect(gapped.map((m) => m.version)).toEqual([1, 3]);
 		db.close();
 	});
 

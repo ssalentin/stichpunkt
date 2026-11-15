@@ -6,6 +6,7 @@ import {
 	MAX_AGGREGATES,
 	aggregateAllowed,
 	type Aggregates,
+	type BulkTarget,
 	type CollectionView,
 	type Filter,
 	type GroupBy,
@@ -116,6 +117,9 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			editing = null;
 		}
 	}
+	// Bulk changes are only interesting where they can be made, so the batch list rides the
+	// same permission flag as the selection UI.
+	const canEdit = collectionWriteEnabled();
 	return {
 		collection,
 		views,
@@ -133,10 +137,13 @@ export const load: PageServerLoad = async ({ params, url }) => {
 		group: grouping.group_by?.property ?? '',
 		groupParam: url.searchParams.get('group'),
 		collapsed,
-		canEdit: collectionWriteEnabled(),
+		canEdit,
 		editing,
 		creating,
-		saved: url.searchParams.get('saved') === '1'
+		saved: url.searchParams.get('saved') === '1',
+		bulk: url.searchParams.get('bulk') === '1',
+		batch: url.searchParams.get('batch') ?? '',
+		batches: canEdit ? store.batches(params.id, 10) : []
 	};
 };
 
@@ -223,14 +230,60 @@ export const actions: Actions = {
 			throw e;
 		}
 		throw redirect(303, `/databases/${params.id}?view=${view.id}&saved=1`);
+	},
+	/** Applies one property to every ticked row as one batch; the redirect offers to undo it. */
+	bulk: async ({ request, params, url }) => {
+		const refusal = collectionWriteRefusal(request.headers);
+		if (refusal) return fail(403, { error: refusal });
+		const form = await request.formData();
+		if (formTooLarge(form)) return fail(413, { error: 'Too many rows selected.' });
+		const store = getCollections();
+		const collection = store.get(params.id);
+		const propertyName = String(form.get('property') ?? '');
+		const property = collection.properties.find((p) => p.name === propertyName);
+		if (!property) return fail(400, { error: 'Choose the property to change.' });
+		if (property.type === 'title') return fail(400, { error: 'Bulk edit does not change titles.' });
+		const ids = [...new Set(form.getAll('row_id').map(String).filter((id) => id))];
+		if (ids.length === 0) return fail(400, { error: 'Select at least one row first.' });
+		const targets: BulkTarget[] = ids.map((id) => {
+			const base = String(form.get(`base:${id}`) ?? '');
+			return base ? { row_id: id, base_updated_at: base } : { row_id: id };
+		});
+		let batchId = '';
+		try {
+			batchId = store.bulkUpdate(params.id, { rows: targets, values: valuesFromForm(form, [property]), actor: 'web-ui' }).batch_id;
+		} catch (e) {
+			if (e instanceof MdwikiError) return fail(e.status === 409 ? 409 : 400, { error: e.message });
+			throw e;
+		}
+		throw redirect(303, withFlag(url, 'saved', batchId));
+	},
+	/** Reverses a bulk batch as a new batch; a row that moved since is named in the error. */
+	undo: async ({ request, params, url }) => {
+		const refusal = collectionWriteRefusal(request.headers);
+		if (refusal) return fail(403, { error: refusal });
+		const form = await request.formData();
+		const batchId = String(form.get('batch_id') ?? '');
+		if (!batchId) return fail(400, { error: 'Missing batch.' });
+		let undoId = '';
+		try {
+			undoId = getCollections().undoBatch(params.id, batchId, 'web-ui').batch_id;
+		} catch (e) {
+			if (e instanceof CollectionError) return fail(e.status, { error: e.message });
+			throw e;
+		}
+		throw redirect(303, withFlag(url, 'saved', undoId));
 	}
 };
 
-/** Keep view/filter/sort, drop the editor state, add the confirmation flag. */
-function withFlag(url: URL, flag: string): string {
+/** Keep view/filter/sort, drop the editor state, add the confirmation flag and the batch it refers to. */
+function withFlag(url: URL, flag: string, batch?: string): string {
 	const next = new URL(url);
 	next.searchParams.delete('edit');
 	next.searchParams.delete('new');
+	next.searchParams.delete('bulk');
 	next.searchParams.set(flag, '1');
+	if (batch) next.searchParams.set('batch', batch);
+	else next.searchParams.delete('batch');
 	return next.pathname + next.search;
 }

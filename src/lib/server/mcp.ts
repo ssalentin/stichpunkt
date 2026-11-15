@@ -324,15 +324,48 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 				aggregates
 			})
 		)
+
+	);
+	server.registerTool(
+		'bulk_update_collection_rows',
+		{
+			description:
+				'Set one or more properties across many rows as a single undoable batch. `rows` names 1..500 rows, each optionally with the `updated_at` you read as `base_updated_at`; `values` is a partial patch like update_collection_row and applies to every row. Everything is checked before anything is written: an unknown row, a stale `base_updated_at` or a bad value fails and changes no row at all, and the 409 names the offending row (`row_id`, `title`, `current`). Writes one revision per row, all sharing a `batch_id`, which undo_collection_batch reverses as a group. `dry_run` reports `would_update` and writes nothing. Returns {batch_id, updated}.',
+			inputSchema: {
+				id: collectionId,
+				rows: z.array(z.object({ row_id: rowId, base_updated_at: z.string().optional() })).describe('Rows to change; duplicates are collapsed'),
+				values: valuesSchema,
+				dry_run: z.boolean().optional(),
+				agent: mcpAgent
+			}
+		},
+		({ id, rows, values, dry_run, agent }) => run(() => {
+			const check = dry_run === true;
+			const result = getCollections().bulkUpdate(id, { rows, values, actor: actorOf(agent), dryRun: check });
+			return check ? { batch_id: result.batch_id, would_update: result.would_update } : { batch_id: result.batch_id, updated: result.updated };
+		})
+	);
+	server.registerTool(
+		'undo_collection_batch',
+		{
+			description:
+				'Undo a bulk change as one new batch. `batch_id` comes from bulk_update_collection_rows, from collection_history (`batch_id`) or from the UI. Every row of the batch must still hold what the batch wrote: a row edited since, or deleted, fails with a 409 that names the row and changes nothing. A batch can only be undone once. `dry_run` reports `would_undo` and writes nothing. Returns {batch_id, undone}, where `batch_id` is the new undo batch — its revisions carry `undo_of`, so undoing an undo works the same way.',
+			inputSchema: { id: collectionId, batch_id: z.string().describe('Bulk batch id to undo'), dry_run: z.boolean().optional(), agent: mcpAgent }
+		},
+		({ id, batch_id, dry_run, agent }) => run(() => {
+			const check = dry_run === true;
+			const result = getCollections().undoBatch(id, batch_id, actorOf(agent), check);
+			return check ? { batch_id: result.batch_id, would_undo: result.would_undo } : { batch_id: result.batch_id, undone: result.undone };
+		})
 	);
 	server.registerTool(
 		'collection_history',
 		{
 			description:
-				'Revision list of a collection, or of one row with `row_id`, newest first: {id, row_id, at, actor, op, before, after}. Every MCP/REST row write records one revision. Read only.',
-			inputSchema: { id: collectionId, row_id: rowId.optional(), limit: z.number().int().optional() }
+				'Revision list of a collection, or of one row with `row_id`, newest first: {id, row_id, at, actor, op, before, after, batch_id, undo_of}. Every MCP/REST row write records one revision. `batch_id` filters to the rows one bulk change touched, or to its undo via `undo_of`. Read only.',
+			inputSchema: { id: collectionId, row_id: rowId.optional(), batch_id: z.string().optional(), limit: z.number().int().optional() }
 		},
-		({ id, row_id, limit }) => run(() => getCollections().history(id, row_id, limit ?? 50))
+		({ id, row_id, batch_id, limit }) => run(() => getCollections().history(id, row_id, limit ?? 50, batch_id))
 	);
 	server.registerTool(
 		'upload_attachment',

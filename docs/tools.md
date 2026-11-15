@@ -18,9 +18,11 @@ Agent-facing MCP tools and the matching REST routes. Page paths never carry `.md
 | `update_collection_row` | `PATCH /api/v1/databases/<id>/rows/<rowId>` | update a row, `base_updated_at` conflict |
 | `delete_collection_row` | `DELETE /api/v1/databases/<id>/rows/<rowId>` | delete a row |
 | `save_collection_view` | `POST /api/v1/databases/<id>/views` | create a saved view with filters, sorts, columns, grouping and aggregates |
-| `collection_history` | – (REST has no collection history) | row revisions, newest first |
+| `bulk_update_collection_rows` | `POST /api/v1/databases/<id>/rows/bulk` | set properties across up to 500 rows as one undoable batch, `dry_run` |
+| `undo_collection_batch` | `POST /api/v1/databases/<id>/rows/bulk/<batchId>/undo` | reverse a batch as a new batch, `dry_run` |
+| `collection_history` | – (REST has no collection history) | row revisions, newest first; `batch_id` selects one batch's rows |
 
-Collections are SQLite tables ("databases" in REST and the UI). The eight collection tools call the same service layer as `/api/v1/databases`, so validation and the `409` conflict behaviour (with `current`) are identical; model, filter operators and the grouping rules: [`collections.md`](collections.md).
+Collections are SQLite tables ("databases" in REST and the UI). The ten collection tools call the same service layer as `/api/v1/databases`, so validation and the `409` conflict behaviour (with `current`) are identical; model, filter operators, the grouping rules and the batch/undo semantics: [`collections.md`](collections.md).
 
 Writes (`write_page`, `write_pages`, `append_to_page`, `delete_page`, `move_page`) keep the previous content under `.history/<path>/<timestamp>-<hash>.md`. Direct file edits are **not** versioned: only the MCP and REST write paths call the revision store.
 

@@ -192,6 +192,72 @@ describe('collection MCP tools', () => {
 		expect(whole.length).toBeGreaterThanOrEqual(2);
 		expect(whole.every((e) => typeof e.at === 'string')).toBe(true);
 	});
+
+	describe('bulk edit and undo', () => {
+		it('applies one batch, reports dry runs and undoes as a new batch', async () => {
+			const client = await mcpClient();
+			const made = [await addRow(client, { Title: 'Bulk A' }), await addRow(client, { Title: 'Bulk B' }), await addRow(client, { Title: 'Bulk C' })];
+
+			const dry = await client.callTool({
+				name: 'bulk_update_collection_rows',
+				arguments: { id: booksId, rows: made.map((r) => ({ row_id: r.id, base_updated_at: r.updated_at })), values: { Status: 'read' }, dry_run: true }
+			});
+			expect(isErr(dry)).toBe(false);
+			expect(text(dry)).toEqual({ batch_id: expect.any(String), would_update: 3 }); // no `updated` on dry runs
+			expect(getCollections().history(booksId).some((h) => h.batch_id === text(dry).batch_id)).toBe(false);
+
+			const bulk = await client.callTool({
+				name: 'bulk_update_collection_rows',
+				arguments: { id: booksId, rows: made.map((r) => ({ row_id: r.id, base_updated_at: r.updated_at })), values: { Status: 'read' }, agent: 'scrivo' }
+			});
+			expect(text(bulk)).toEqual({ batch_id: expect.any(String), updated: 3 });
+			const batchId = text(bulk).batch_id as string;
+
+			const inBatch = text(await client.callTool({ name: 'collection_history', arguments: { id: booksId, batch_id: batchId } })) as unknown as Record<string, unknown>[];
+			expect(inBatch).toHaveLength(3);
+			expect(inBatch.every((h) => h.actor === 'scrivo' && h.undo_of === null)).toBe(true);
+
+			const undoDry = await client.callTool({ name: 'undo_collection_batch', arguments: { id: booksId, batch_id: batchId, dry_run: true } });
+			expect(text(undoDry)).toEqual({ batch_id: batchId, would_undo: 3 });
+
+			const undone = await client.callTool({ name: 'undo_collection_batch', arguments: { id: booksId, batch_id: batchId } });
+			expect(isErr(undone)).toBe(false);
+			expect(text(undone)).toEqual({ batch_id: expect.any(String), undone: 3 });
+			const undoId = text(undone).batch_id as string;
+			expect(undoId).not.toBe(batchId);
+			expect(getCollections().query(booksId).rows.filter((r) => made.some((m) => m.id === r.id)).every((r) => r.values.Status === undefined)).toBe(true);
+
+			const undoRev = text(await client.callTool({ name: 'collection_history', arguments: { id: booksId, batch_id: undoId } })) as unknown as Record<string, unknown>[];
+			expect(undoRev.every((h) => h.undo_of === batchId)).toBe(true);
+		});
+
+		it('answers errors the REST way: named-row conflicts, single undo, unknown batches', async () => {
+			const client = await mcpClient();
+			const made = [await addRow(client, { Title: 'Bulk D' }), await addRow(client, { Title: 'Bulk E' })];
+
+			const stale = await client.callTool({
+				name: 'bulk_update_collection_rows',
+				arguments: { id: booksId, rows: [{ row_id: made[0].id }, { row_id: made[1].id, base_updated_at: '1970-01-01T00:00:00.000Z' }], values: { Status: 'read' } }
+			});
+			expect(isErr(stale)).toBe(true);
+			expect(text(stale)).toMatchObject({ status: 409, error: 'conflict', message: 'Row "Bulk E" changed since it was loaded', row_id: made[1].id, title: 'Bulk E' });
+			expect(typeof text(stale).current).toBe('string');
+
+			const bulk = await client.callTool({ name: 'bulk_update_collection_rows', arguments: { id: booksId, rows: [{ row_id: made[0].id }], values: { Status: 'read' } } });
+			const batchId = text(bulk).batch_id as string;
+			await client.callTool({ name: 'undo_collection_batch', arguments: { id: booksId, batch_id: batchId } });
+			const again = await client.callTool({ name: 'undo_collection_batch', arguments: { id: booksId, batch_id: batchId } });
+			expect(isErr(again)).toBe(true);
+			expect(text(again)).toMatchObject({ status: 400, error: 'batch_undone' });
+
+			const missing = await client.callTool({ name: 'undo_collection_batch', arguments: { id: booksId, batch_id: 'no-such-batch' } });
+			expect(text(missing)).toMatchObject({ status: 404, error: 'batch_not_found' });
+
+			const empty = await client.callTool({ name: 'bulk_update_collection_rows', arguments: { id: booksId, rows: [], values: { Status: 'read' } } });
+			expect(isErr(empty)).toBe(true);
+			expect(text(empty).status).toBe(400);
+		});
+	});
 });
 
 // Grouping and aggregates over both paths. A dedicated collection keeps the numbers deterministic.
