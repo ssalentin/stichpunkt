@@ -477,6 +477,33 @@ export class CollectionStore {
 		return { id: row.id as string, created_at: row.created_at as string, updated_at: row.updated_at as string, values };
 	}
 
+	/**
+	 * Every row of a collection, uncapped: `query()` keeps its 500-row limit for the UI, the
+	 * search index needs all of them. Same existence checks and ordering as the other reads.
+	 */
+	allRows(collectionId: string): { properties: Property[]; rows: RowRecord[] } {
+		this.get(collectionId);
+		const properties = this.properties(collectionId);
+		const rows = this.db
+			.prepare(
+				`SELECT r.id, r.created_at, r.updated_at,
+					(SELECT json_group_object(p.name, json(c.value))
+					   FROM cell c JOIN property p ON p.id = c.property_id
+					  WHERE c.row_id = r.id) AS values_json
+				 FROM "row" r WHERE r.collection_id = ? ORDER BY r.position, r.id`
+			)
+			.all(collectionId) as Record<string, unknown>[];
+		return {
+			properties,
+			rows: rows.map((r) => ({
+				id: r.id as string,
+				created_at: r.created_at as string,
+				updated_at: r.updated_at as string,
+				values: r.values_json ? (JSON.parse(r.values_json as string) as Record<string, unknown>) : {}
+			}))
+		};
+	}
+
 	// ---- views ---------------------------------------------------------------------------
 
 	views(collectionId: string): CollectionView[] {
