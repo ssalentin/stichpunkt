@@ -321,6 +321,14 @@ All levels are strict: an unknown key makes the manifest invalid, so a typo cann
 - `deployed` reports the commit in `deployed.sha`; before the first deploy the file is missing and still `ok`.
 - `backup` fails when the last `backup ok` entry is older than 36 hours.
 
+### Deploy gate
+
+The production deploy script proves every new build can write before it swaps the build into the
+service: read a collection, create a scratch row, refuse a stale write with `409`, delete the row.
+A build that fails any step is not deployed, and the previous build keeps serving. The gate runs
+against a throwaway copy of the database, so it never touches live data. Failure modes, the
+`--gate` and `--gate-test` modes and the refusal test hook: [docs/deploy-gate.md](docs/deploy-gate.md).
+
 **Token rotation**
 
 1. Generate a new token: `openssl rand -base64 32`; store it in your password manager.
