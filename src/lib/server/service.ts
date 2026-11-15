@@ -1,11 +1,14 @@
+import fs from 'node:fs';
 import { allViewLabel, checkPage, folderOwner, layerBlockOf, layerLabels as labelsForLayers, layerOfPage, LAYERS, MANIFEST_PAGE, manifestInstructions, parseDateValue, parseManifest, rulesForPage, sameActor, type Layer, type ManifestIssue, type ManifestRules, type PageWarning } from './agent-manifest';
 import { loadConfig, type MdwikiConfig } from './config';
 import { MdwikiError } from './errors';
 import { escapeHtml, parseFrontmatter, slugify, renderBody, sectionOf, type EmbedRef, type ExprSource, type PagesBlock, type Rendered, type Widget } from './markdown';
 import { renderWidget } from './widgets';
 import { parsePagesBlock, parsePagesQuery, renderPagesError, renderPagesResult, runPagesQuery, PagesQueryError } from './pages-query';
-import { renderDatabaseBlock, renderDatabaseError } from './database-block';
-import { getCollections } from './collection-service';
+import { plainCellText, renderDatabaseBlock, renderDatabaseError } from './database-block';
+import { getCollections, whenCollectionsOpen } from './collection-service';
+import { CollectionError, collectionsFile, type CollectionStore } from './collections';
+import type { SearchRowInput } from './search';
 import { evaluateNode, parseExpr, QueryBudget, MAX_EXPRS_PER_PAGE, ExprRuntimeError, ExprParseError, type EvalContext } from './expr';
 import { renderValue } from './expr-render';
 import { valueToJson, valueToText } from './expr-render';
@@ -55,6 +58,8 @@ interface CacheEntry {
 const MAX_EMBED_DEPTH = 3;
 const MAX_EMBEDS_PER_PAGE = 20;
 const MAX_EMBED_CHARS = 200_000;
+/** a burst of row writes inside this window re-indexes each collection once (like the SSE coalescing) */
+const ROW_INDEX_COALESCE_MS = 250;
 
 interface EmbedCtx {
 	depth: number;
@@ -73,6 +78,12 @@ export class Mdwiki {
 	private manifest: { rules: ManifestRules; prose: string; hash: string } | null = null;
 	/** issues of the MANIFEST.md currently on disk, when it is invalid */
 	private manifestInvalid: { hash: string; issues: ManifestIssue[] } | null = null;
+	/** row-index watch: store, unsubscribe handles, dirty collections and the coalescing timer */
+	private rowsStore: CollectionStore | null = null;
+	private rowsUnsubscribe: (() => void) | null = null;
+	private rowsWaiter: (() => void) | null = null;
+	private rowsDirty = new Set<string>();
+	private rowsTimer: NodeJS.Timeout | null = null;
 
 	constructor(readonly config: MdwikiConfig = loadConfig()) {
 		this.store = new Store(config.spaceDir, {
@@ -86,12 +97,75 @@ export class Mdwiki {
 	async start(poll = true): Promise<this> {
 		await this.index.init();
 		await this.reloadManifest();
+		this.startRowIndexing();
 		if (poll) this.index.startPolling(this.config.pollInterval);
 		return this;
 	}
 
 	stop(): void {
 		this.index.stopPolling();
+		this.rowsUnsubscribe?.();
+		this.rowsUnsubscribe = null;
+		this.rowsWaiter?.();
+		this.rowsWaiter = null;
+		if (this.rowsTimer) clearTimeout(this.rowsTimer);
+		this.rowsTimer = null;
+		this.rowsDirty.clear();
+		this.rowsStore = null;
+	}
+
+	// ---- collection rows in the search index --------------------------------------------
+
+	/**
+	 * A restart with an existing collections DB indexes rows at boot; without the file the watch
+	 * attaches to the first UI open instead. Opening must never happen as a side effect here:
+	 * a live event creating a database would be worse than a cold search index.
+	 */
+	private startRowIndexing(): void {
+		if (fs.existsSync(collectionsFile(this.config.spaceDir))) {
+			this.watchCollectionRows(getCollections());
+			return;
+		}
+		this.rowsWaiter = whenCollectionsOpen((store) => {
+			this.rowsWaiter = null;
+			this.watchCollectionRows(store);
+		});
+	}
+
+	/** Seeds every collection once, then marks collections dirty on each store event. */
+	private watchCollectionRows(store: CollectionStore): void {
+		if (this.rowsStore === store) return;
+		this.rowsStore = store;
+		for (const collection of store.list()) {
+			this.index.setCollectionRows(collection.id, collectionRowsForIndex(store, collection.id));
+		}
+		this.rowsUnsubscribe = store.subscribe((collectionId) => {
+			this.rowsDirty.add(collectionId);
+			// bursts coalesce into one rebuild per collection: the flush re-reads current state
+			this.rowsTimer ??= setTimeout(() => this.flushCollectionRows(), ROW_INDEX_COALESCE_MS);
+			this.rowsTimer.unref();
+		});
+	}
+
+	/**
+	 * Applies every pending row change now (the coalescing timer calls the same path). The
+	 * operation is always "derive collection X from the current DB state", never a delta, so
+	 * missed events, bursts and crashes all converge on the same index.
+	 */
+	flushCollectionRows(): void {
+		if (this.rowsTimer) clearTimeout(this.rowsTimer);
+		this.rowsTimer = null;
+		const ids = [...this.rowsDirty];
+		this.rowsDirty.clear();
+		if (!this.rowsStore) return;
+		for (const id of ids) {
+			try {
+				this.index.setCollectionRows(id, collectionRowsForIndex(this.rowsStore, id));
+			} catch (e) {
+				if (e instanceof CollectionError && e.status === 404) this.index.setCollectionRows(id, null); // collection is gone
+				else console.error('[mdwiki] row index failed:', e);
+			}
+		}
 	}
 
 	// ---- queries -------------------------------------------------------------------------
@@ -1157,6 +1231,35 @@ export class Mdwiki {
 	private pageName(page: string): string {
 		return fileToPage(pageToFile(page));
 	}
+}
+
+/**
+ * Maps a collection's current rows to search index inputs: the title property becomes the row
+ * title, every other non-empty cell becomes one `property: text` field. Checkbox cells are skipped
+ * (a bare true/false has no searchable meaning); multi_select values join and dates, urls and
+ * emails go in as text. The cell rule is the database block's `plainCellText`.
+ */
+export function collectionRowsForIndex(store: CollectionStore, collectionId: string): SearchRowInput[] {
+	const collection = store.get(collectionId); // also the 404 for a vanished collection
+	const { properties, rows } = store.allRows(collectionId);
+	const titleProp = properties.find((p) => p.type === 'title');
+	return rows.map((row) => {
+		const values = row.values as Record<string, unknown>;
+		const fields: { property: string; text: string }[] = [];
+		for (const prop of properties) {
+			if (prop.type === 'checkbox') continue;
+			const text = plainCellText(values[prop.name]);
+			if (text) fields.push({ property: prop.name, text });
+		}
+		return {
+			collectionId: collection.id,
+			collectionName: collection.name,
+			rowId: row.id,
+			title: titleProp ? plainCellText(values[titleProp.name]) : '',
+			fields,
+			updatedMs: Date.parse(row.updated_at) || 0
+		};
+	});
 }
 
 /** Red error chip in the style of IS-181: the message and the source text, never blank. */

@@ -24,6 +24,17 @@ export function parseDatabaseBlock(source: string): string {
 }
 
 /**
+ * The plain visible text of a cell value, without any HTML: empty for null/undefined/'',
+ * arrays joined with ", " (multi_select), everything else through String (checkbox values
+ * become their text). One rule for the database block renderer and for the search index.
+ */
+export function plainCellText(value: unknown): string {
+	if (value === null || value === undefined || value === '') return '';
+	if (Array.isArray(value)) return value.map((v) => String(v)).join(', ');
+	return String(value);
+}
+
+/**
  * A link target for a cell value, or null. Only http(s) and plain mail addresses become links:
  * a `javascript:` or `data:` value in a database row must never turn into an href.
  */
@@ -50,8 +61,8 @@ function labelFor(prop: Property, text: string): string {
 
 function cell(value: unknown, prop: Property): string {
 	if (value === null || value === undefined || value === '') return '<span class="muted">–</span>';
-	if (Array.isArray(value)) return value.map((v) => escapeHtml(String(v))).join(', ');
-	const text = String(value);
+	if (Array.isArray(value)) return escapeHtml(plainCellText(value));
+	const text = plainCellText(value);
 	const href = linkFor(prop, text);
 	if (href) {
 		return `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(text)}">${escapeHtml(labelFor(prop, text))}</a>`;
@@ -72,7 +83,7 @@ export function renderDatabaseBlock(store: CollectionStore, source: string): str
 		.map((row) => {
 			const cells = props.map((p) => {
 				const value = (row.values as Record<string, unknown>)[p.name];
-				const text = value === null || value === undefined || value === '' ? '' : String(value);
+				const text = plainCellText(value);
 				const title = text ? ` title="${escapeHtml(text)}"` : '';
 				return `<td${title}>${cell(value, p)}</td>`;
 			});
