@@ -4,6 +4,11 @@
  *
  * Everything here is plain TypeScript without dependencies; the index is built
  * in memory from the parsed pages and rebuilt whenever the space changes.
+ *
+ * Collection rows are indexed into the same structure as a separate document
+ * set (`indexRows` / `rankRows`). Corpus statistics (df, vocab, avgLen) stay
+ * page-only, so feeding rows never changes a page score: rows are ranked as
+ * guests on the page scale and merged into one result list.
  */
 
 export interface SearchPageInput {
@@ -17,6 +22,34 @@ export interface SearchPageInput {
 	hidden: boolean;
 }
 
+/** One collection row as the store hands it to the index (mapped in service.ts). */
+export interface SearchRowInput {
+	collectionId: string;
+	collectionName: string;
+	rowId: string;
+	/** value of the collection's title property */
+	title: string;
+	/** one entry per non-empty cell; the property name gives the snippet its context */
+	fields: { property: string; text: string }[];
+	updatedMs: number;
+}
+
+/** Identity of a matched row, so the hit can be opened directly. */
+export interface RowHit {
+	collectionId: string;
+	collectionName: string;
+	rowId: string;
+	/** property whose text matched best; '' when only title or collection name matched */
+	property: string;
+	/** direct-open link into the collection view */
+	href: string;
+}
+
+/** The single builder of the row deep-link scheme (used by every row hit). */
+export function rowHref(collectionId: string, rowId: string): string {
+	return `/databases/${encodeURIComponent(collectionId)}?edit=${encodeURIComponent(rowId)}`;
+}
+
 export interface SearchHit {
 	path: string;
 	title: string;
@@ -28,13 +61,18 @@ export interface SearchHit {
 	snippet: string;
 	terms: string[];
 	score: number;
+	/** set on collection-row hits: then `path` is '', `tags` empty and `folder` the collection name */
+	row?: RowHit;
 }
 
 export interface SearchResult {
 	query: string;
 	terms: string[];
 	filters: { tags: string[]; folders: string[] };
+	/** pages + matched rows */
 	total: number;
+	/** how many of the matched documents are collection rows */
+	rows: number;
 	results: SearchHit[];
 	per_page: { path: string; count: number; layer: string }[];
 	facets: { folders: { name: string; count: number }[]; tags: { name: string; count: number }[] };
@@ -136,15 +174,37 @@ export interface SearchIndex {
 	sections: Section[];
 	byPage: PageIndex['pages'];
 	pages: SearchPageInput[];
+	/** corpus statistics (df, vocab, avgLen) are page-only; rows never contribute */
 	df: Map<string, number>;
 	vocab: Map<string, number>;
 	avgLen: number;
 	/** title terms per page, used for field boosts */
 	titles: string[][];
+	/** indexed collection rows, keyed by collection; a separate document set */
+	rowDocs: Map<string, SearchRowDoc[]>;
 	buildMs: number;
 }
 
 const FIELD_WEIGHT = { title: 4.5, heading: 1.8, tags: 1.6, path: 0.7 };
+
+/** Indexed row shape; internal to the index (write through `indexRows`, read through `rankRows`). */
+export interface SearchRowDoc {
+	collectionId: string;
+	collectionName: string;
+	rowId: string;
+	title: string;
+	/** body text: one `property: value` line per non-empty cell; snippets keep this surface */
+	body: string;
+	/** stemmed terms per field text, so a hit can name the property that matched */
+	fieldTerms: { property: string; tokens: Set<string> }[];
+	titleTerms: string[];
+	collectionTerms: string[];
+	tokens: string[];
+	sentences: string[][];
+	tf: Map<string, number>;
+	len: number;
+	updatedMs: number;
+}
 
 /**
  * Splits a compound into two or three parts that all exist in the corpus
@@ -237,7 +297,169 @@ export function buildIndex(pages: SearchPageInput[], now = Date.now()): SearchIn
 	const df = new Map<string, number>();
 	for (const s of sections) for (const t of s.tf.keys()) df.set(t, (df.get(t) ?? 0) + 1);
 	const avgLen = sections.reduce((n, s) => n + s.len, 0) / Math.max(sections.length, 1);
-	return { sections, byPage, pages, df, vocab, avgLen, titles, buildMs: Date.now() - t0 };
+	return { sections, byPage, pages, df, vocab, avgLen, titles, rowDocs: new Map(), buildMs: Date.now() - t0 };
+}
+
+// ---- rows ------------------------------------------------------------------------
+
+/**
+ * Replaces the row documents of one collection (`null` removes it). The write is delete-then-insert
+ * in a dedicated map, so it is idempotent: the same input twice leaves the index unchanged. It never
+ * touches df, vocab or avgLen, which keeps page scores byte-identical with and without rows.
+ */
+export function indexRows(index: SearchIndex, collectionId: string, rows: SearchRowInput[] | null): void {
+	if (typeof collectionId !== 'string' || !collectionId) throw new Error('indexRows: collectionId must be a non-empty string');
+	if (rows === null) {
+		index.rowDocs.delete(collectionId);
+		return;
+	}
+	if (!Array.isArray(rows)) throw new Error(`indexRows: rows of "${collectionId}" must be an array or null`);
+	const docs = rows.map((row) => rowDocOf(index, collectionId, row));
+	index.rowDocs.delete(collectionId); // delete-then-insert keeps the Map order deterministic
+	if (docs.length) index.rowDocs.set(collectionId, docs);
+}
+
+/** Builds one guest document: body of `property: value` lines, compounds at half weight like pages. */
+function rowDocOf(index: SearchIndex, collectionId: string, row: SearchRowInput): SearchRowDoc {
+	if (!row || typeof row.rowId !== 'string' || !row.rowId) throw new Error(`indexRows: row of "${collectionId}" needs a rowId`);
+	if (typeof row.collectionId !== 'string' || row.collectionId !== collectionId) {
+		throw new Error(`indexRows: row "${row.rowId}" belongs to collection "${row.collectionId}", not "${collectionId}"`);
+	}
+	if (typeof row.collectionName !== 'string' || typeof row.title !== 'string' || !Array.isArray(row.fields)) {
+		throw new Error(`indexRows: malformed input for row "${row.rowId}"`);
+	}
+	const fieldTerms: { property: string; tokens: Set<string> }[] = [];
+	const lines: string[] = [];
+	for (const field of row.fields) {
+		if (!field || typeof field.property !== 'string' || typeof field.text !== 'string') throw new Error(`indexRows: malformed field in row "${row.rowId}"`);
+		const text = field.text.replace(/\s+/g, ' ').trim();
+		if (!text) continue;
+		lines.push(`${field.property}: ${text}`);
+		fieldTerms.push({ property: field.property, tokens: new Set(tokenize(text)) });
+	}
+	const body = lines.join('\n');
+	const surface = words(body);
+	const tokens = surface.map(stem);
+	const tf = new Map<string, number>();
+	for (let i = 0; i < tokens.length; i++) {
+		tf.set(tokens[i], (tf.get(tokens[i]) ?? 0) + 1);
+		const parts = splitCompound(surface[i], index.vocab);
+		if (parts) for (const part of parts) tf.set(stem(part), (tf.get(stem(part)) ?? 0) + 0.5);
+	}
+	const updatedMs = Number(row.updatedMs);
+	return {
+		collectionId,
+		collectionName: row.collectionName,
+		rowId: row.rowId,
+		title: row.title,
+		body,
+		fieldTerms,
+		titleTerms: tokenize(row.title),
+		collectionTerms: tokenize(row.collectionName),
+		tokens,
+		sentences: body.split('\n').map((line) => tokenize(line)).filter((t) => t.length),
+		tf,
+		len: Math.max(tokens.length, 1),
+		updatedMs: Number.isFinite(updatedMs) ? updatedMs : 0
+	};
+}
+
+/** A row document that matched the query, scored on the page scale. */
+export interface RowScored {
+	doc: SearchRowDoc;
+	score: number;
+	/** how many query concepts matched */
+	covered: number;
+	/** every quoted phrase was found */
+	phrasesOk: boolean;
+	/** property whose text carried the most matches; '' when only title or collection name matched */
+	property: string;
+	/** stemmed forms that matched, resolved to surface words when the hit is built */
+	highlight: Set<string>;
+}
+
+/**
+ * Ranks row documents as guests on the page scale: the same idf and bm25, measured against the
+ * page avgLen (short rows saturate on one hit, which is the wanted exact-value behaviour), title
+ * match at FIELD_WEIGHT.title, collection-name match at FIELD_WEIGHT.path, and coverage and phrase
+ * handling as in rank(). The corpus statistics are read, never written.
+ */
+export function rankRows(index: SearchIndex, concepts: Concept[], phrases: string[][]): RowScored[] {
+	const out: RowScored[] = [];
+	const phraseIdf = phrases.map((p) => p.reduce((n, t) => n + idf(index, t), 0));
+	for (const docs of index.rowDocs.values()) {
+		for (const doc of docs) {
+			let score = 0;
+			let covered = 0;
+			let phraseOk = true;
+			const propertyHits = new Map<string, number>();
+			const highlight = new Set<string>();
+
+			for (const concept of concepts) {
+				const partIdf = concept.parts.map((t) => idf(index, t));
+				const partBest = concept.parts.map(() => 0);
+				let total = 0;
+				for (let i = 0; i < concept.parts.length; i++) {
+					const tf = doc.tf.get(concept.parts[i]);
+					if (!tf) continue;
+					const sc = bm25(tf, doc.len, index.avgLen, partIdf[i]);
+					total += sc;
+					if (sc > partBest[i]) partBest[i] = sc;
+				}
+				// the parts of a compound may sit in different cells; together they beat one mention
+				let best = total;
+				if (concept.parts.length > 1) best = Math.max(best, 1.05 * partBest.reduce((a, b) => a + b, 0));
+				const inTitle = intersects(doc.titleTerms, concept.parts);
+				const inCollection = intersects(doc.collectionTerms, concept.parts);
+				let fieldScore = 0;
+				if (inTitle) fieldScore += FIELD_WEIGHT.title * avgIdf(partIdf);
+				if (inCollection) fieldScore += FIELD_WEIGHT.path * avgIdf(partIdf);
+				if (!(best > 0 || inTitle || inCollection)) continue;
+				covered++;
+				const partsHit = concept.parts.filter((part) => doc.titleTerms.includes(part) || doc.collectionTerms.includes(part) || doc.tf.has(part)).length;
+				const partFactor = concept.parts.length > 1 ? 1 + 0.6 * (partsHit - 1) : 1;
+				score += (best + fieldScore) * partFactor;
+				for (const part of concept.parts) if (index.df.has(part)) highlight.add(part);
+				for (const surface of concept.surface) highlight.add(surface);
+				for (const field of doc.fieldTerms) {
+					if (concept.parts.some((part) => field.tokens.has(part))) {
+						propertyHits.set(field.property, (propertyHits.get(field.property) ?? 0) + 1);
+					}
+				}
+			}
+
+			// quoted phrases must occur verbatim in the title or one field line
+			for (let i = 0; i < phrases.length; i++) {
+				const phrase = phrases[i];
+				const inTitle = containsSequence(doc.titleTerms, phrase);
+				const inBody = doc.sentences.some((sent) => containsSequence(sent, phrase));
+				if (!inTitle && !inBody) {
+					phraseOk = false;
+					break;
+				}
+				score += 6 + phraseIdf[i] * 1.5;
+				for (const t of phrase) highlight.add(t);
+			}
+			if (!phraseOk) continue; // quoted phrases are not negotiable
+			if (!concepts.length && !phrases.length) continue;
+			if (covered === 0 && !phrases.length) continue;
+
+			const need = Math.max(concepts.length, 1);
+			const coverage = covered / need;
+			score *= 0.5 + 0.5 * coverage;
+
+			let property = '';
+			let bestCount = 0;
+			for (const [name, n] of propertyHits) {
+				if (n > bestCount) {
+					bestCount = n;
+					property = name;
+				}
+			}
+			out.push({ doc, score, covered, phrasesOk: true, property, highlight });
+		}
+	}
+	return out.sort((a, b) => b.score - a.score || b.doc.updatedMs - a.doc.updatedMs);
 }
 
 // ---- query ----------------------------------------------------------------------------
@@ -269,7 +491,7 @@ export function parseQuery(q: string): ParsedQuery {
 }
 
 /** One meaning in the query: a word, or a compound that may match by its parts. */
-interface Concept {
+export interface Concept {
 	parts: string[];
 	surface: string[];
 	weight: number;
@@ -345,7 +567,7 @@ export function runSearch(
 	const layerOf = opts.layerOf ?? (() => 'reading');
 	const parsed = parseQuery(query);
 	const filters = { tags: parsed.tags, folders: parsed.folders };
-	const empty: SearchResult = { query, terms: [], filters, total: 0, results: [], per_page: [], facets: { folders: [], tags: [] }, mode: 'and' };
+	const empty: SearchResult = { query, terms: [], filters, total: 0, rows: 0, results: [], per_page: [], facets: { folders: [], tags: [] }, mode: 'and' };
 	if (!parsed.terms.length && !parsed.phrases.length && !parsed.tags.length && !parsed.folders.length) return empty;
 
 	const visible = index.byPage.filter((p) => (!p.page.hidden || opts.includeHidden) && (opts.includeWorking || layerOf(p.page.path) !== 'working'));
@@ -373,11 +595,14 @@ export function runSearch(
 	// phrases are mandatory; everything else is ranked with a coverage penalty, so
 	// pages matching all words still win over pages matching only some of them
 	const scored = dampMeta(rank(index, allowed, concepts, phrases), layerOf, !!opts.legacyMetaDamping);
+	// rows join the same list as guests on the page scale; #tag and in: are page-scoped, so they exclude rows
+	const rowScored = parsed.tags.length || parsed.folders.length ? [] : rankRows(index, concepts, phrases);
+	const merged = mergeRanked(scored, rowScored);
 	let mode: SearchResult['mode'] = 'or';
-	const top = scored[0];
-	if (top && top.covered === concepts.length && top.phrasesOk) mode = 'and';
+	const top = merged[0];
+	if (top && top.covered === concepts.length && (!top.page || top.page.phrasesOk)) mode = 'and';
 	let matched = scored.map((s) => s.page);
-	let hits = scored.slice(0, limit).map((s) => hitOf(s.page, index, s.score, s.section, s.highlight, layerOf));
+	let hits = merged.slice(0, limit).map((m) => (m.page ? hitOf(m.page.page, index, m.page.score, m.page.section, m.page.highlight, layerOf) : rowHitOf(m.row!)));
 
 	if (!hits.length && surfaceTerms.length && opts.fuzzy) {
 		mode = 'fuzzy';
@@ -390,7 +615,30 @@ export function runSearch(
 		hits = candidates.map((c) => hitOf(c.p, index, c.score, c.p.sections[0] ?? 0, new Set(), layerOf));
 		matched = candidates.map((c) => c.p);
 	}
-	return finish(empty, hits, matched, query, surfaceTerms, mode, index, concepts, phrases, layerOf);
+	// facets and per_page stay page-only; total counts pages + matched rows
+	const result = finish(empty, hits, matched, query, surfaceTerms, mode, index, concepts, phrases, layerOf);
+	result.rows = rowScored.length;
+	result.total += rowScored.length;
+	return result;
+}
+
+/** A candidate in the merged list: exactly one of `page` and `row` is set. */
+interface Merged {
+	score: number;
+	covered: number;
+	/** recency used for tie-breaking: page mtimeMs or row updatedMs */
+	stamp: number;
+	page?: Scored;
+	row?: RowScored;
+}
+
+/** One ranked list over pages and rows: score first, pages win ties, then recency. */
+function mergeRanked(scored: Scored[], rows: RowScored[]): Merged[] {
+	const all: Merged[] = [
+		...scored.map((s): Merged => ({ score: s.score, covered: s.covered, stamp: s.page.page.mtimeMs, page: s })),
+		...rows.map((r): Merged => ({ score: r.score, covered: r.covered, stamp: r.doc.updatedMs, row: r }))
+	];
+	return all.sort((a, b) => b.score - a.score || (a.page === b.page ? 0 : a.page ? -1 : 1) || b.stamp - a.stamp);
 }
 
 /** Down-weights pages of the working layer (helper/editorial pages) and re-sorts. */
@@ -559,6 +807,29 @@ function hitOf(page: PageIndex['pages'][number], index: SearchIndex, score: numb
 		snippet: snippetAround(section?.text ?? page.page.text, surfaces),
 		terms: surfaces,
 		score
+	};
+}
+
+/** The row counterpart of `hitOf`: collection and row identity instead of path and section, snippet over the `property: value` body. */
+function rowHitOf(r: RowScored): SearchHit {
+	const surfaces = surfaceWords(r.doc.body, r.highlight);
+	return {
+		path: '',
+		title: r.doc.title,
+		folder: r.doc.collectionName,
+		tags: [],
+		layer: 'reading',
+		section: { heading: '', slug: '' },
+		snippet: snippetAround(r.doc.body, surfaces),
+		terms: surfaces,
+		score: r.score,
+		row: {
+			collectionId: r.doc.collectionId,
+			collectionName: r.doc.collectionName,
+			rowId: r.doc.rowId,
+			property: r.property,
+			href: rowHref(r.doc.collectionId, r.doc.rowId)
+		}
 	};
 }
 

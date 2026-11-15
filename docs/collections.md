@@ -79,6 +79,23 @@ concatenated into SQL.
 A saved view stores filters, sorts and visible columns. Explicit request filters override the view's
 filters; the view's columns still apply.
 
+## Search
+
+Row values are searchable from the normal wiki search. Rows live in the same index as the pages but as
+their own document set, scored with the page corpus statistics — page ranking is unaffected. Hits from
+rows share the one result list and carry a `row` object (collection, row, matched property and an `href`
+that opens the row directly). Quoted phrases match within a single cell line; `#tag` and `in:folder`
+queries stay page-scoped and skip rows. The index follows writes without a restart: it is seeded at boot
+when the collections file already exists, attaches at the first open otherwise, and coalesces bursts of
+row changes into one re-index a quarter second after the last write.
+
+`scripts/search-rows-walk.sh` reruns the acceptance against a copy of an instance: it copies space and
+database into a temp dir, starts the built server on a free port, searches a real value, then creates,
+edits and deletes a scratch row over REST and asserts that every change reaches the index without a
+restart and that a `#tag` query stays page-only. Every write stays below the temp dir, so the source
+instance is never touched. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/search-rows-evidence.png` shows one against a copy of the live instance.
+
 ## API
 
 ```

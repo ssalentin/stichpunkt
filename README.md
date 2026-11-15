@@ -62,7 +62,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 - CommonMark + GFM, frontmatter, `[[Page]]`, `[[Page|alias]]`, `[[Page#Heading]]` wikilinks, `#tags` (inline and frontmatter) and syntax-highlighted code.
 - Mobile-first shell (bottom bar and sheet), three columns on desktop, quick switcher (<kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd>), breadcrumbs, outline, backlinks and a properties rail.
 - Callouts (`> [!note]`, `[!tip]`, `[!warning]`, … with `+`/`-` for foldable ones), footnotes (`[^1]`), emoji shortcodes (`:tada:`) and transclusion (`![[Page]]`, `![[Page#Heading]]`, nested up to 3 levels with a loop guard); see the `Features/` demo pages.
-- Full-text search ranked by BM25 over sections and fields, with German stemming, compound splitting (`Arzttermin` → `Arzt` + `Termin`), quoted phrases, `#tag` / `in:folder` filters, highlighted snippets around the best match and folder/tag facets.
+- Full-text search ranked by BM25 over sections and fields, with German stemming, compound splitting (`Arzttermin` → `Arzt` + `Termin`), quoted phrases, `#tag` / `in:folder` filters, highlighted snippets around the best match and folder/tag facets. Collection rows are searchable too: they rank on the same scale as pages in one result list, and opening a row hit goes straight to that row in its table.
 - Automatic `/tag/<name>` pages; tag metadata can be declared in `CONFIG.md` with `tag.define` (parsed, never executed).
 - Live reload: the UI and the installed PWA follow content changes (API/MCP writes and file edits) over server-sent events (`/_ui/events`). The changed blocks flash, the tree and *Recent* update, a notice appears, and nothing reloads while text is selected. Reconnects catch up automatically; the footer shows the connection state. Behind a reverse proxy, response buffering must be off for `/_ui/events` (the app sends `X-Accel-Buffering: no`, which nginx honours; Traefik streams by default).
 - Installable PWA (Chrome on Android: "Install" button in the header or menu → *Install app*); the service worker caches the shell and the last ~50 visited pages for offline reading and shows an offline page for anything not yet visited. The manifest ships a phone and a desktop screenshot for Chrome's richer install dialog. Installing requires HTTPS (or `localhost`).
@@ -87,6 +87,7 @@ A public demo runs at **https://stichpunkt.salen7in.de**. It follows the latest 
 
 - Typed tables in SQLite at `/var/lib/stichpunkt/collections.sqlite` (`COLLECTIONS_DB` overrides; app state, deliberately outside the mounted space), with properties (`title`, `text`, `number`, `select`, `multi_select`, `date`, `checkbox`, `url`, `email`), rows and cells as real records.
 - Notion-style table view at `/databases`: filter bar, click-to-sort columns, saved views, typed cell rendering and live reload over the existing SSE stream.
+- Row values join the full-text search: hits open the row directly (`/databases/<collection>?edit=<row>`), and the index follows edits within a quarter second — no restart.
 - Filtering and sorting run in SQL with bound parameters; `base_updated_at` gives optimistic concurrency; every row change is recorded with an actor.
 - REST API under `/api/v1/databases` and the same guarantees over MCP (`list_collections`, `get_collection`, `query_collection_rows`, `create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`); `import/preview` reports the Markdown tables of a page before any migration, `export?format=csv|json` returns a portable snapshot of one collection. See [docs/collections.md](docs/collections.md).
 - `GET /api/v1/export` and `npm run export` write the whole instance (all pages, all collections, versioned header) as one bundle. See [docs/export.md](docs/export.md).
@@ -228,7 +229,7 @@ All routes require `Authorization: Bearer <token>`. Page names are paths without
 
 | Method and path | Purpose |
 | --- | --- |
-| `GET /api/v1/search?q=&limit=&include_working=` | full-text search (working pages hidden by default) |
+| `GET /api/v1/search?q=&limit=&include_working=` | full-text search over pages and collection rows (working pages hidden by default); the response carries a `rows` count, and a row hit has a `row` object with its `href` |
 | `GET /api/v1/pages?prefix=&include_working=&limit=&offset=` | `{pages,total,truncated}` (working hidden by default) |
 | `GET /api/v1/pages/<path>` | `{content, frontmatter, hash, mtime}` |
 | `PUT /api/v1/pages/<path>` | `{content, base_hash?}`; stale `base_hash` → **409** with `current`; `base_hash: ""` = must not exist |

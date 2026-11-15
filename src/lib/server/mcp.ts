@@ -55,7 +55,7 @@ export function buildMcpServer(mdwiki: Mdwiki): McpServer {
 
 	server.registerTool(
 		'search',
-		{ description: 'Full-text search over titles, tags and content. Supports "phrases", #tag and in:folder filters. Returns ranked results with the matching section and snippet, layer per hit, per-page counts, plus folder/tag facets. Pages of the working layer are hidden unless include_working is true.', inputSchema: { query: z.string(), limit: z.number().int().optional(), include_working: z.boolean().optional() } },
+		{ description: 'Full-text search over titles, tags and content. Supports "phrases", #tag and in:folder filters. Returns ranked results with the matching section and snippet, layer per hit, per-page counts, plus folder/tag facets. Pages of the working layer are hidden unless include_working is true. Collection rows join the one ranked list: a row hit has an empty path and a `row` object with collectionId, collectionName, rowId, the matched property and an `href` that opens the row directly; `rows` counts the row matches and `total` includes them. Queries with #tag or in:folder stay page-only.', inputSchema: { query: z.string(), limit: z.number().int().optional(), include_working: z.boolean().optional() } },
 		({ query, limit, include_working }) => run(() => mdwiki.search(query, limit ?? 30, include_working ?? false))
 	);
 	server.registerTool(

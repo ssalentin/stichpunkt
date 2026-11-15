@@ -1,6 +1,6 @@
 import { fuzzyScore } from '../fuzzy';
 import { analyze, type WikiLink } from './markdown';
-import { buildIndex, fuzzyFallback, parseQuery, runSearch, type SearchHit, type SearchIndex, type SearchResult } from './search';
+import { buildIndex, fuzzyFallback, indexRows, parseQuery, runSearch, type SearchHit, type SearchIndex, type SearchRowInput, type SearchResult } from './search';
 
 export { parseQuery };
 export type { SearchHit, SearchResult };
@@ -58,6 +58,8 @@ export class SpaceIndex {
 	private tagMap = new Map<string, Set<string>>();
 	private tagPageMap = new Map<string, string>();
 	private searchIndex: SearchIndex | null = null;
+	/** row inputs per collection; re-applied after every page rebuild so a reload can never drop rows */
+	private rowInputs = new Map<string, SearchRowInput[] | null>();
 	private configTags = new Map<string, string>();
 	private timer: NodeJS.Timeout | null = null;
 	private polling = false;
@@ -222,6 +224,8 @@ export class SpaceIndex {
 				hidden: p.hidden
 			}))
 		);
+		// a page reload rebuilds the index from scratch; the remembered rows go back in
+		for (const [collectionId, rows] of this.rowInputs) indexRows(this.searchIndex, collectionId, rows);
 		const change: SpaceChange = { version: this.version, paths };
 		for (const fn of this.listeners) {
 			try {
@@ -230,6 +234,16 @@ export class SpaceIndex {
 				console.error('[mdwiki] change listener failed:', e);
 			}
 		}
+	}
+
+	/**
+	 * Replaces the searchable rows of one collection (`null` removes it). The single write path:
+	 * inputs are remembered, so `rebuild` re-applies them after every page reload and a page
+	 * change can never drop the row hits.
+	 */
+	setCollectionRows(collectionId: string, rows: SearchRowInput[] | null): void {
+		this.rowInputs.set(collectionId, rows);
+		if (this.searchIndex) indexRows(this.searchIndex, collectionId, rows);
 	}
 
 	/** Exact path, then case-insensitive, then relative to the page's folder, then unique basename. */

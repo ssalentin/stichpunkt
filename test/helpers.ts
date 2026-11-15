@@ -15,6 +15,9 @@ export function tempSpace(): string {
 
 export async function makeMdwiki(opts: { poll?: number; env?: Record<string, string> } = {}) {
 	const dir = tempSpace();
+	// The boot-time row indexer (issue #84) opens `COLLECTIONS_DB` when the file already exists.
+	// Pin that seam to the temp space, so a test can never open or index the live collections database.
+	process.env.COLLECTIONS_DB = opts.env?.COLLECTIONS_DB ?? path.join(dir, 'collections.sqlite');
 	const config = loadConfig({
 		SPACE_DIR: dir,
 		MDWIKI_API_TOKEN: 'test-token',

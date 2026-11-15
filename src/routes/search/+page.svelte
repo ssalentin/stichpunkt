@@ -20,10 +20,12 @@
 		const raw = data.result;
 		if (!raw) return null;
 		const hits = raw.results.filter((hit) => layerInView(hit.layer, ui.layerView));
+		// facets and per-page counters stay page-only; row hits carry no path or tags
+		const pageHits = hits.filter((hit) => !hit.row);
 		const perPage = raw.per_page.filter((entry) => layerInView(entry.layer, ui.layerView));
 		const folders = new Map<string, number>();
 		const tags = new Map<string, number>();
-		for (const hit of hits) {
+		for (const hit of pageHits) {
 			const folder = hit.path.includes('/') ? hit.path.slice(0, hit.path.indexOf('/')) : '';
 			if (folder) folders.set(folder, (folders.get(folder) ?? 0) + 1);
 			for (const tag of hit.tags) tags.set(tag, (tags.get(tag) ?? 0) + 1);
@@ -158,7 +160,8 @@
 		{/if}
 
 		<p class="count" aria-live="polite">
-			{result.total} {result.total === 1 ? 'page' : 'pages'}
+			{result.total - result.rows} {result.total - result.rows === 1 ? 'page' : 'pages'}
+			{#if result.rows}<span class="count-note">· {result.rows} {result.rows === 1 ? 'row' : 'rows'}</span>{/if}
 			{#if result.mode === 'or'}<span class="count-note">· some words do not occur, showing partial matches</span>{/if}
 			{#if result.mode === 'fuzzy'}<span class="count-note">· no exact match, nearest pages</span>{/if}
 		</p>
@@ -186,22 +189,32 @@
 			{/if}
 
 			<ul class="hits">
-				{#each result.results as r (r.path)}
+				{#each result.results as r (r.row ? 'row:' + r.row.rowId : r.path)}
 					<li class="hit">
-						<a class="hit-title" href="/{encodeURI(r.path)}">
-							<span class="hit-name">{r.title}</span>
-							{#if folderOf(r.path)}<span class="hit-folder">{folderOf(r.path)}/</span>{/if}
-						</a>
-						{#if r.section.heading}
-							<a class="hit-section" href="/{encodeURI(r.path)}#{encodeURI(r.section.slug)}">
-								<span aria-hidden="true">↳</span> {r.section.heading}
+						{#if r.row}
+							<a class="hit-title" href={r.row.href}>
+								<span class="hit-name">{r.title}</span>
+								<span class="hit-folder">{r.row.collectionName}</span>
 							</a>
-						{/if}
-						{#if r.snippet}
-							<p class="hit-snippet">{#each segments(r.snippet, terms) as s}{#if s.m}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</p>
-						{/if}
-						{#if r.tags.length}
-							<div class="hit-tags">{#each r.tags as t}<a class="tag" href="/tag/{encodeURI(t)}">#{t}</a>{/each}</div>
+							{#if r.snippet}
+								<p class="hit-snippet">{#each segments(r.snippet, terms) as s}{#if s.m}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</p>
+							{/if}
+						{:else}
+							<a class="hit-title" href="/{encodeURI(r.path)}">
+								<span class="hit-name">{r.title}</span>
+								{#if folderOf(r.path)}<span class="hit-folder">{folderOf(r.path)}/</span>{/if}
+							</a>
+							{#if r.section.heading}
+								<a class="hit-section" href="/{encodeURI(r.path)}#{encodeURI(r.section.slug)}">
+									<span aria-hidden="true">↳</span> {r.section.heading}
+								</a>
+							{/if}
+							{#if r.snippet}
+								<p class="hit-snippet">{#each segments(r.snippet, terms) as s}{#if s.m}<mark>{s.t}</mark>{:else}{s.t}{/if}{/each}</p>
+							{/if}
+							{#if r.tags.length}
+								<div class="hit-tags">{#each r.tags as t}<a class="tag" href="/tag/{encodeURI(t)}">#{t}</a>{/each}</div>
+							{/if}
 						{/if}
 					</li>
 				{/each}
