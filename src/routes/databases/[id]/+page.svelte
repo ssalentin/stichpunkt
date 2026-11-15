@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { BRAND } from '#lib/brand';
 	import { page as appPage } from '$app/state';
-	import type { CollectionSummary, Property } from '#lib/server/collections';
+	import { EMPTY_GROUP_KEY, collapsedParam, groupKeyOf, toggleCollapsedKey } from '#lib/group-key';
+	import type { CollectionSummary, GroupInfo, Property, RowRecord } from '#lib/server/collections';
 
 	let { data, form } = $props();
 	const db = $derived(data.collection as CollectionSummary);
@@ -75,6 +76,75 @@
 	const titleProp = $derived(visible.find((p: Property) => p.type === 'title') ?? visible[0]);
 	const cardFields = $derived(visible.filter((p: Property) => p.id !== titleProp?.id));
 	const currentSort = $derived(data.sorts[0] ? `${data.sorts[0].property}:${data.sorts[0].direction}` : '');
+
+	const groupProp = $derived.by((): Property | null => {
+		const name = data.group as string;
+		if (!name || !data.groups) return null;
+		return fields.find((p: Property) => p.name.toLowerCase() === name.toLowerCase()) ?? null;
+	});
+
+	interface GroupSection {
+		key: string | null;
+		count: number;
+		collapsed: boolean;
+		rows: RowRecord[];
+	}
+
+	/**
+	 * One section per group from the store, in order, with the page's rows bucketed under their
+	 * key. Rows whose JS key matches no SQL key (exotic stored forms) get their own section at
+	 * the end. Collapsed groups have no rows: the load already hid them.
+	 */
+	const sections = $derived.by((): GroupSection[] | null => {
+		const groups = data.groups as GroupInfo[] | null;
+		const prop = groupProp;
+		if (!groups || !prop) return null;
+		const collapsed = new Set<string>(data.collapsed as string[]);
+		const out: GroupSection[] = groups.map((g) => ({
+			key: g.key,
+			count: g.count,
+			collapsed: collapsed.has(g.key ?? EMPTY_GROUP_KEY),
+			rows: []
+		}));
+		const byKey = new Map<string, GroupSection>(out.map((s) => [s.key ?? EMPTY_GROUP_KEY, s]));
+		for (const row of data.rows as RowRecord[]) {
+			const key = groupKeyOf(prop, row.values[prop.name]) ?? EMPTY_GROUP_KEY;
+			const section = byKey.get(key);
+			if (!section) {
+				const leftover: GroupSection = { key: key === EMPTY_GROUP_KEY ? null : key, count: 1, collapsed: false, rows: [row] };
+				byKey.set(key, leftover);
+				out.push(leftover);
+				continue;
+			}
+			section.rows.push(row);
+		}
+		return out;
+	});
+
+	function groupLabel(section: GroupSection): string {
+		if (section.key === null) return '(empty)';
+		if (groupProp?.type === 'multi_select' && section.key.startsWith('[')) {
+			try {
+				const parsed: unknown = JSON.parse(section.key);
+				if (Array.isArray(parsed)) return parsed.map(String).join(', ');
+			} catch {
+				/* the raw stored key wins */
+			}
+		}
+		return section.key;
+	}
+
+	/** The footer value for one visible column, or '' when the column has no aggregate. */
+	function aggregateText(prop: Property): string {
+		const aggs = data.aggregates as Record<string, { fn: string; value: unknown }> | null;
+		if (!aggs) return '';
+		const key = Object.keys(aggs).find((k) => k.toLowerCase() === prop.name.toLowerCase());
+		const entry = key ? aggs[key] : undefined;
+		if (!entry) return '';
+		if (entry.value === null || entry.value === undefined) return '—';
+		if (prop.type === 'date' && typeof entry.value === 'string') return cellText(entry.value.slice(0, 10));
+		return cellText(entry.value);
+	}
 </script>
 
 {#snippet cell(prop: Property, value: unknown)}
@@ -91,6 +161,52 @@
 	{:else}
 		{cellText(value)}
 	{/if}
+{/snippet}
+
+{#snippet rowItem(row: RowRecord)}
+	<tr>
+		{#each visible as prop (prop.id)}
+			{@const value = row.values[prop.name]}
+			{#if prop.id === titleProp?.id}
+				<th scope="row" class="cell type-{prop.type}">
+					<span class="title-cell">
+						<strong>{cellText(value)}</strong>
+						{#if data.canEdit}<a class="edit-link" href={editHref(row.id)}>Edit</a>{/if}
+					</span>
+				</th>
+			{:else}
+				<td class="cell type-{prop.type}">
+					{@render cell(prop, value)}
+				</td>
+			{/if}
+		{/each}
+	</tr>
+{/snippet}
+
+{#snippet cardItem(row: RowRecord)}
+	<li class="card">
+		<div class="card-head">
+			<span class="card-title">{titleProp ? cellText(row.values[titleProp.name]) : '—'}</span>
+			{#if data.canEdit}<a class="btn small" href={editHref(row.id)}>Edit</a>{/if}
+		</div>
+		<dl class="card-fields">
+			{#each cardFields as prop (prop.id)}
+				<div class="card-field">
+					<dt>{prop.name}</dt>
+					<dd class="type-{prop.type}">{@render cell(prop, row.values[prop.name])}</dd>
+				</div>
+			{/each}
+		</dl>
+	</li>
+{/snippet}
+
+{#snippet groupHead(section: GroupSection)}
+	<a
+		class="group-toggle"
+		href={hrefWith({ collapsed: toggleCollapsedKey(data.collapsed as string[], section.key) })}
+		aria-expanded={!section.collapsed}
+		title={section.collapsed ? 'Expand group' : 'Collapse group'}>{section.collapsed ? '▸' : '▾'}</a
+	>
 {/snippet}
 
 <svelte:head><title>{db.name} · {BRAND}</title></svelte:head>
@@ -182,6 +298,8 @@
 	<form class="filters" method="get">
 		{#if data.view}<input type="hidden" name="view" value={data.view} />{/if}
 		{#if currentSort}<input type="hidden" name="sort" value={currentSort} />{/if}
+		{#if data.groupParam !== null}<input type="hidden" name="group" value={data.groupParam ?? ''} />{/if}
+		{#if (data.collapsed as string[]).length}<input type="hidden" name="collapsed" value={collapsedParam(data.collapsed as string[])} />{/if}
 		{#each [0, 1, 2] as i}
 			<div class="filter-row">
 				<select name="p{i}" aria-label="Filter property {i + 1}">
@@ -204,6 +322,22 @@
 		</div>
 	</form>
 
+	{#if data.canEdit}
+		<form class="save-view" method="post" action="?/saveView">
+			{#if data.view}<input type="hidden" name="view" value={data.view} />{/if}
+			{#each data.filters as filter, i (i)}
+				<input type="hidden" name="p{i}" value={filter.property} />
+				<input type="hidden" name="o{i}" value={filter.op} />
+				<input type="hidden" name="v{i}" value={String(filter.value ?? '')} />
+			{/each}
+			{#if currentSort}<input type="hidden" name="sort" value={currentSort} />{/if}
+			{#if data.group}<input type="hidden" name="group" value={data.group} />{/if}
+			<label for="view-name">Save current filters, sorts and grouping as a view</label>
+			<input id="view-name" name="view_name" placeholder="View name" required maxlength="80" />
+			<button class="btn small" type="submit">Save view</button>
+		</form>
+	{/if}
+
 	<div class="table-wrap">
 		<table>
 			<thead>
@@ -215,29 +349,46 @@
 					{/each}
 				</tr>
 			</thead>
-			<tbody>
-				{#each data.rows as row (row.id)}
+			{#if sections}
+				{#each sections as section (section.key ?? EMPTY_GROUP_KEY)}
+					<tbody class="group-body">
+						<tr class="group-head">
+							<th scope="colgroup" colspan={visible.length}>
+								{@render groupHead(section)}
+								<span class="group-label">{groupLabel(section)}</span>
+								<span class="group-count">{section.count}</span>
+							</th>
+						</tr>
+						{#each section.rows as row (row.id)}
+							{@render rowItem(row)}
+						{/each}
+					</tbody>
+				{/each}
+				{#if sections.length === 0}
+					<tbody><tr><td class="empty" colspan={visible.length}>No rows match.</td></tr></tbody>
+				{/if}
+			{:else}
+				<tbody>
+					{#each data.rows as row (row.id)}
+						{@render rowItem(row)}
+					{:else}
+						<tr><td class="empty" colspan={visible.length}>No rows match.</td></tr>
+					{/each}
+				</tbody>
+			{/if}
+			{#if data.aggregates}
+				<tfoot>
 					<tr>
 						{#each visible as prop (prop.id)}
-							{@const value = row.values[prop.name]}
 							{#if prop.id === titleProp?.id}
-								<th scope="row" class="cell type-{prop.type}">
-									<span class="title-cell">
-										<strong>{cellText(value)}</strong>
-										{#if data.canEdit}<a class="edit-link" href={editHref(row.id)}>Edit</a>{/if}
-									</span>
-								</th>
+								<th scope="row" class="cell type-{prop.type}">{aggregateText(prop)}</th>
 							{:else}
-								<td class="cell type-{prop.type}">
-									{@render cell(prop, value)}
-								</td>
+								<td class="cell type-{prop.type}">{aggregateText(prop)}</td>
 							{/if}
 						{/each}
 					</tr>
-				{:else}
-					<tr><td class="empty" colspan={visible.length}>No rows match.</td></tr>
-				{/each}
-			</tbody>
+				</tfoot>
+			{/if}
 		</table>
 	</div>
 
@@ -248,6 +399,8 @@
 			<input type="hidden" name="o{i}" value={filter.op} />
 			<input type="hidden" name="v{i}" value={String(filter.value ?? '')} />
 		{/each}
+		{#if data.groupParam !== null}<input type="hidden" name="group" value={data.groupParam ?? ''} />{/if}
+		{#if (data.collapsed as string[]).length}<input type="hidden" name="collapsed" value={collapsedParam(data.collapsed as string[])} />{/if}
 		<label for="card-sort">Sort</label>
 		<select id="card-sort" name="sort">
 			<option value="" selected={!currentSort}>Default</option>
@@ -260,24 +413,28 @@
 	</form>
 
 	<ul class="cards">
-		{#each data.rows as row (row.id)}
-			<li class="card">
-				<div class="card-head">
-					<span class="card-title">{titleProp ? cellText(row.values[titleProp.name]) : '—'}</span>
-					{#if data.canEdit}<a class="btn small" href={editHref(row.id)}>Edit</a>{/if}
-				</div>
-				<dl class="card-fields">
-					{#each cardFields as prop (prop.id)}
-						<div class="card-field">
-							<dt>{prop.name}</dt>
-							<dd class="type-{prop.type}">{@render cell(prop, row.values[prop.name])}</dd>
-						</div>
-					{/each}
-				</dl>
-			</li>
+		{#if sections}
+			{#each sections as section (section.key ?? EMPTY_GROUP_KEY)}
+				<li class="card-group-head">
+					<a href={hrefWith({ collapsed: toggleCollapsedKey(data.collapsed as string[], section.key) })}>
+						<span>{groupLabel(section)}</span>
+						<span class="group-count">{section.count}</span>
+					</a>
+				</li>
+				{#each section.rows as row (row.id)}
+					{@render cardItem(row)}
+				{/each}
+			{/each}
+			{#if sections.length === 0}
+				<li class="card empty">No rows match.</li>
+			{/if}
 		{:else}
-			<li class="card empty">No rows match.</li>
-		{/each}
+			{#each data.rows as row (row.id)}
+				{@render cardItem(row)}
+			{:else}
+				<li class="card empty">No rows match.</li>
+			{/each}
+		{/if}
 	</ul>
 
 	<footer class="pager">
@@ -307,6 +464,9 @@
 	.filter-row { display: grid; grid-template-columns: minmax(8rem, 1fr) minmax(7rem, 0.8fr) minmax(8rem, 1.2fr); gap: 0.4rem; }
 	.filters select, .filters input { width: 100%; min-height: 34px; padding: 0.3rem 0.5rem; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
 	.filter-actions { display: flex; gap: 0.4rem; }
+	.save-view { display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap; margin: 0 0 1rem; }
+	.save-view label { color: var(--muted); font: 700 0.7rem var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
+	.save-view input { min-height: 30px; padding: 0.25rem 0.5rem; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
 	.table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); }
 	table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
 	th, td { text-align: left; padding: 0.45rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
@@ -347,6 +507,15 @@
 	tr:hover .edit-link, .edit-link:focus-visible { opacity: 1; }
 	@media (hover: none) { .edit-link { opacity: 1; } }
 
+	/* Grouped table: a header row opens each group's tbody, a footer row carries the aggregates. */
+	.group-body { border-top: 1px solid var(--border); }
+	.group-head th { background: color-mix(in srgb, var(--fg) 3%, transparent); font-weight: 400; padding: 0.3rem 0.7rem; }
+	.group-toggle { color: var(--muted); text-decoration: none; margin-right: 0.45rem; font: 700 0.8rem var(--mono); }
+	.group-toggle:hover { color: var(--fg); text-decoration: none; }
+	.group-label { font-weight: 700; overflow-wrap: anywhere; white-space: normal; }
+	.group-count { display: inline-block; margin-left: 0.45rem; padding: 0 6px; border: 1px solid var(--border); border-radius: 999px; font: 700 0.68rem var(--mono); color: var(--muted); }
+	tfoot th, tfoot td { position: static; background: var(--panel); border-top: 2px solid var(--border); border-bottom: none; font: 700 0.78rem var(--mono); color: var(--fg); text-transform: none; letter-spacing: normal; white-space: normal; }
+
 	/* Under 640px a card list replaces the table; filters and sort stay the same server-side query. */
 	@media (max-width: 639px) {
 		.db-head { align-items: flex-start; }
@@ -366,5 +535,9 @@
 		.card-sort { display: flex; align-items: center; gap: 0.4rem; margin: 0 0 0.7rem; }
 		.card-sort label { color: var(--muted); font: 700 0.72rem var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
 		.card-sort select { flex: 1; min-width: 0; min-height: 34px; padding: 0.3rem 0.5rem; color: var(--fg); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+		.card-group-head { list-style: none; margin: 0.4rem 0 0; }
+		.card-group-head a { display: flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0.1rem; color: var(--muted); font: 700 0.72rem var(--mono); letter-spacing: 0.05em; text-transform: uppercase; }
+		.card-group-head a:hover { color: var(--fg); text-decoration: none; }
+		.card-group-head .group-count { margin-left: 0; }
 	}
 </style>

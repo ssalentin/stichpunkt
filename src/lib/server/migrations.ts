@@ -122,6 +122,13 @@ export const MIGRATIONS: readonly Migration[] = [
 		version: 1,
 		name: 'baseline',
 		sql: BASELINE_SCHEMA
+	},
+	{
+		version: 2,
+		name: 'view-grouping',
+		// Nullable JSON text columns, following the filters/sorts/columns pattern. The user_version
+		// gate runs each step exactly once, so a plain ALTER is safe here.
+		sql: 'ALTER TABLE "view" ADD COLUMN group_by TEXT; ALTER TABLE "view" ADD COLUMN aggregates TEXT;'
 	}
 ];
 

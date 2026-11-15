@@ -4,7 +4,8 @@ A collection is a typed, relational table next to the notes. It is not a Markdow
 view over page frontmatter: rows, properties, cells and saved views live in SQLite. The app renders
 them at `/databases`, and agents work with them over the REST API under `/api/v1/databases` and the
 matching MCP tools (`list_collections`, `get_collection`, `query_collection_rows`,
-`create_collection_row`, `update_collection_row`, `delete_collection_row`, `collection_history`).
+`create_collection_row`, `update_collection_row`, `delete_collection_row`, `save_collection_view`,
+`collection_history`).
 Both paths call the same service layer, so validation and conflict behaviour are identical.
 
 ## Where the data lives
@@ -26,8 +27,8 @@ Backups must copy the database through SQLite, not as a raw file: `sqlite3 colle
 
 ## Schema migrations
 
-The schema has a version, currently **1**, stored in `PRAGMA user_version`. The ordered migration list
-lives in `src/lib/server/migrations.ts`; step 1 is the baseline that also adopts databases created
+The schema has a version, currently **2**, stored in `PRAGMA user_version`. The ordered migration
+list lives in `src/lib/server/migrations.ts`; step 1 is the baseline that also adopts databases created
 before migrations existed (its `CREATE TABLE IF NOT EXISTS` statements are what the app used to run
 on every start).
 
@@ -63,7 +64,7 @@ that has shipped: production databases have already recorded its version.
 | `property` | name, type, options, position; exactly one `title` property |
 | `row` | id, collection, timestamps, position |
 | `cell` | `(row, property) → value`; the value is JSON, typed through the property |
-| `view` | name, filters, sorts, visible columns, position |
+| `view` | name, filters, sorts, visible columns, group_by, aggregates, position |
 | `revision` | every row create/update/delete with actor and before/after values |
 
 Property types: `title`, `text`, `number`, `select`, `multi_select`, `date`, `checkbox`, `url`, `email`.
@@ -76,8 +77,44 @@ Filters are `{property, op, value}`. Operators: `eq`, `neq`, `contains`, `not_co
 Sorts are `{property, direction}` and stack. Every value is bound as a parameter; no user input is
 concatenated into SQL.
 
-A saved view stores filters, sorts and visible columns. Explicit request filters override the view's
-filters; the view's columns still apply.
+A saved view stores filters, sorts, visible columns, a grouping and per-column aggregates. Explicit
+request filters override the view's filters; the view's columns still apply.
+
+## Grouping and aggregates
+
+`group_by: {property, direction?}` (direction defaults to `asc`) groups the result of a query. The
+response then carries `groups: [{key, count}]` and the rows come grouped: the group key leads the
+order, the requested sorts stack inside each group.
+
+The key is the raw stored value, so each group holds the rows that store exactly that value:
+
+- dates are truncated to the day (`2026-01-05`), times within a day share one group;
+- checkboxes group as `'true'` and `'false'`;
+- empty and missing cells share the `null` key, which is ordered last in both directions;
+- `multi_select` groups by the exact stored combination (`["a","b"]` is a different group from
+  `["a"]`). There is no per-option fan-out: a row with two options does not appear under each.
+  This is a known v1 limitation.
+
+Group counts cover the whole filtered set, not the returned page, so a group split across pages
+keeps its true count. The UI renders one collapsible section per group; collapsed keys travel in the
+`collapsed` URL parameter, percent-encoded and comma-joined, and their rows are hidden server-side.
+`docs/assets/grouping-desktop.png` and `docs/assets/grouping-mobile.png` show a grouped Fixkosten
+view (sections with counts, one collapsed group, aggregate footer) on desktop and below 640px.
+
+`aggregates: {property: fn}` computes one footer value per column over the whole filtered set; the
+response carries `aggregates: {property: {fn, value}}`. Functions and the types they accept:
+
+| fn | allowed for | notes |
+|---|---|---|
+| `count` | all types | the row count |
+| `count_values` | all types | filled cells only; empty strings and `[]` do not count |
+| `sum`, `average` | `number` | `average` divides by the filled count and is `null` when nothing is filled |
+| `min`, `max` | `number`, `date`, `text`, `title`, `url`, `email` | compares the raw stored values |
+
+Requests with an unknown group/aggregate property or a function the type does not allow fail with
+`400` (`bad_group` / `bad_aggregate`) and change nothing. A saved view whose group or aggregate
+property was later deleted (or whose type no longer allows the function) is the one exception: the
+dangling entry is silently ignored at query time instead of breaking the view for everyone.
 
 ## Search
 
@@ -105,14 +142,14 @@ GET    /api/v1/databases/:id                     collection, properties, views
 PATCH  /api/v1/databases/:id                     rename {name?, icon?}
 DELETE /api/v1/databases/:id
 
-GET    /api/v1/databases/:id/rows?view=&limit=&offset=&filter=prop:op:value&sort=prop:asc
+GET    /api/v1/databases/:id/rows?view=&limit=&offset=&group=prop&filter=prop:op:value&sort=prop:asc
 POST   /api/v1/databases/:id/rows                {values:{...}, actor?}
 PATCH  /api/v1/databases/:id/rows/:rowId         {values:{...}, actor?, base_updated_at?}
 DELETE /api/v1/databases/:id/rows/:rowId
-POST   /api/v1/databases/:id/query               {filters, sorts, limit, offset, view}
+POST   /api/v1/databases/:id/query               {filters, sorts, limit, offset, view, group_by, aggregates}
 
 GET    /api/v1/databases/:id/views
-POST   /api/v1/databases/:id/views               {id?, name, filters?, sorts?, columns?}
+POST   /api/v1/databases/:id/views               {id?, name, filters?, sorts?, columns?, group_by?, aggregates?}
 DELETE /api/v1/databases/:id/views/:viewId
 
 GET    /api/v1/databases/:id/export?format=csv   download all rows; format=csv (default) or json
@@ -137,17 +174,28 @@ to decide which one becomes canonical.
 ## Notion reference
 
 The implemented subset follows Notion's database model: one row per record, typed properties,
-table view, filters, multi-key sorts, saved views per database. Not implemented yet: inline cell
-editing, board/calendar/timeline layouts, relations/rollups/formulas, grouping, per-view property
-visibility beyond columns, and per-cell revision display. Live updates ride the existing SSE stream
-(`/_ui/events`), so an open table reloads when a row changes.
+table view, filters, multi-key sorts, saved views per database, collapsible grouping with per-group
+counts and footer aggregates. Not implemented yet: inline cell editing, board/calendar/timeline
+layouts, relations/rollups/formulas, per-group aggregates, per-view property visibility beyond
+columns, and per-cell revision display. Live updates ride the existing SSE stream (`/_ui/events`),
+so an open table reloads when a row changes.
 
 ## Verification
 
-`scripts/mcp-collections-walk.sh` runs the acceptance walk of the seven collection tools against a
+`scripts/mcp-collections-walk.sh` runs the acceptance walk of the seven row-facing collection tools
+(`save_collection_view` is walked by `scripts/grouping-walk.sh` instead) against a
 copy of an instance: it copies space and database into a temp dir, starts the built server on a
 free port and drives every tool over Streamable HTTP MCP (`scripts/mcp-walk.ts`), including a
 filtered query, the `409` conflict on a stale `base_updated_at`, a validation refusal and the
 revision history of the scratch row it deletes again. Every write stays below the temp dir, so the
 source instance is never touched. A passing run ends with `WALK COMPLETE`; the capture in
 `docs/assets/mcp-collections-evidence.png` shows one against a copy of the live instance.
+
+`scripts/grouping-walk.sh` runs the acceptance walk of grouping and aggregates against a copy:
+whole-set group counts (sum equals total, one key recounted row-by-row), the number sum recomputed
+with `jq`, the saved-view round trip over REST (`views` POST, query through `{view: id}`, `views`
+GET echo) and over MCP (`query_collection_rows`, `save_collection_view`), the `400` refusals
+(`bad_aggregate`, `bad_group`), and an isolation proof that the walk's view exists in the copy's
+database only. A passing run ends with `WALK COMPLETE`; the capture in
+`docs/assets/grouping-walk-evidence.png` shows one against a copy of the live instance
+(Fixkosten grouped by Status).

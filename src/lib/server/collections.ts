@@ -38,6 +38,27 @@ export const FILTER_OPS = [
 ] as const;
 export type FilterOp = (typeof FILTER_OPS)[number];
 
+/** Aggregate functions for view footers. `count` is the row count, `count_values` the filled cells. */
+export const AGGREGATE_FNS = ['count', 'count_values', 'sum', 'min', 'max', 'average'] as const;
+export type AggregateFn = (typeof AGGREGATE_FNS)[number];
+
+export interface GroupBy {
+	property: string;
+	direction: 'asc' | 'desc';
+}
+
+/** group_by as accepted on the wire: direction is optional and defaults to asc. */
+export type GroupByInput = { property: string; direction?: 'asc' | 'desc' };
+
+/** Column aggregates keyed by property name. */
+export type Aggregates = Record<string, AggregateFn>;
+
+export interface GroupInfo {
+	/** Raw stored cell value; date truncated to the day; checkbox 'true'/'false'; empty and missing cells are null. */
+	key: string | null;
+	count: number;
+}
+
 export interface Property {
 	id: string;
 	name: string;
@@ -63,6 +84,8 @@ export interface CollectionView {
 	filters: Filter[];
 	sorts: Sort[];
 	columns: string[] | null;
+	group_by: GroupBy | null;
+	aggregates: Aggregates;
 	position: number;
 }
 
@@ -95,6 +118,10 @@ export interface RowQuery {
 	limit?: number;
 	offset?: number;
 	view?: string;
+	/** undefined falls back to the view's group_by; explicit null disables grouping. */
+	group_by?: GroupByInput | null;
+	/** undefined falls back to the view's aggregates; explicit null or {} disables aggregates. */
+	aggregates?: Aggregates | null;
 }
 
 export class CollectionError extends MdwikiError {
@@ -108,6 +135,8 @@ const MAX_LIMIT = 500;
 const DEFAULT_LIMIT = 100;
 const MAX_FILTERS = 20;
 const MAX_SORTS = 5;
+/** Ceiling on aggregate entries per view; the UI builds its defaults under the same cap. */
+export const MAX_AGGREGATES = 20;
 
 function nowIso(now = new Date()): string {
 	return now.toISOString();
@@ -168,6 +197,40 @@ function parseColumns(raw: unknown): string[] | null {
 	if (raw === undefined || raw === null) return null;
 	if (!Array.isArray(raw) || raw.length > 50) fail(400, 'bad_view', 'columns must be an array of property names');
 	return raw.map((c) => asString(c, 'column', 80));
+}
+
+/** At most one group_by; null and undefined both mean "no grouping". */
+function parseGroupBy(raw: unknown): GroupBy | null {
+	if (raw === undefined || raw === null) return null;
+	if (typeof raw !== 'object' || Array.isArray(raw)) fail(400, 'bad_group', 'group_by must be an object with a property');
+	const g = raw as Record<string, unknown>;
+	const property = asString(g.property, 'group_by.property');
+	const direction = g.direction ?? 'asc';
+	if (direction !== 'asc' && direction !== 'desc') fail(400, 'bad_group', 'group_by.direction must be asc or desc');
+	return { property, direction };
+}
+
+function parseAggregates(raw: unknown): Aggregates {
+	if (raw === undefined || raw === null) return {};
+	if (typeof raw !== 'object' || Array.isArray(raw)) fail(400, 'bad_aggregate', 'aggregates must be an object of property names to functions');
+	const entries = Object.entries(raw as Record<string, unknown>);
+	if (entries.length > MAX_AGGREGATES) fail(400, 'bad_aggregate', `aggregates must have at most ${MAX_AGGREGATES} entries`);
+	const out: Aggregates = {};
+	for (const [property, fn] of entries) {
+		const name = asString(property, 'aggregate property', 80);
+		if (typeof fn !== 'string' || !(AGGREGATE_FNS as readonly string[]).includes(fn)) {
+			fail(400, 'bad_aggregate', `aggregates["${property}"] must be one of ${AGGREGATE_FNS.join(', ')}`);
+		}
+		out[name] = fn as AggregateFn;
+	}
+	return out;
+}
+
+/** Per-type allowances: count/count_values always; sum/average numbers; min/max ordered scalars. */
+export function aggregateAllowed(fn: AggregateFn, type: PropertyType): boolean {
+	if (fn === 'count' || fn === 'count_values') return true;
+	if (fn === 'sum' || fn === 'average') return type === 'number';
+	return type === 'number' || type === 'date' || type === 'text' || type === 'title' || type === 'url' || type === 'email';
 }
 
 function clampLimit(n: unknown): number {
@@ -340,7 +403,15 @@ export class CollectionStore {
 
 	// ---- rows ----------------------------------------------------------------------------
 
-	query(collectionId: string, input: RowQuery = {}): { rows: RowRecord[]; total: number; properties: Property[] } {
+	query(collectionId: string, input: RowQuery = {}): {
+		rows: RowRecord[];
+		total: number;
+		properties: Property[];
+		/** Group counts over the whole filtered set, null without grouping. */
+		groups: GroupInfo[] | null;
+		/** Column aggregates over the whole filtered set, null without aggregates. */
+		aggregates: Record<string, { fn: AggregateFn; value: number | string | null }> | null;
+	} {
 		this.get(collectionId);
 		const properties = this.properties(collectionId);
 		const byName = new Map(properties.map((p) => [p.name.toLowerCase(), p]));
@@ -348,12 +419,43 @@ export class CollectionStore {
 		const sorts = parseSorts(input.sorts);
 		const limit = clampLimit(input.limit);
 		const offset = Math.max(0, Number(input.offset) || 0);
+		// undefined falls back to the view's value; explicit null disables. Unlike the filters and
+		// sorts fallback above (which fills empty lists), these are single settings checked per key.
+		const requestGroup = input.group_by === undefined ? undefined : parseGroupBy(input.group_by);
+		const requestAggregates = input.aggregates === undefined ? undefined : parseAggregates(input.aggregates);
+		let groupBy = requestGroup ?? null;
+		let groupIsView = false;
+		let aggregates = requestAggregates ?? {};
+		let aggregatesAreView = false;
 		if (input.view) {
 			const view = this.views(collectionId).find((v) => v.id === input.view);
 			if (!view) fail(404, 'not_found', `View "${input.view}" does not exist`);
 			if (!input.filters?.length) filters.push(...view.filters);
 			if (!input.sorts?.length) sorts.push(...view.sorts);
+			if (requestGroup === undefined && view.group_by) {
+				groupBy = view.group_by;
+				groupIsView = true;
+			}
+			if (requestAggregates === undefined) {
+				aggregates = view.aggregates;
+				aggregatesAreView = true;
+			}
 		}
+		if (groupBy && !byName.has(groupBy.property.toLowerCase())) {
+			// A saved view whose group property no longer exists is silently ignored; a request is a 400.
+			if (!groupIsView) fail(400, 'bad_group', `Unknown property "${groupBy.property}"`);
+			groupBy = null;
+		}
+		const keptAggregates: Aggregates = {};
+		for (const [property, fn] of Object.entries(aggregates)) {
+			const prop = byName.get(property.toLowerCase());
+			if (!prop || !aggregateAllowed(fn, prop.type)) {
+				if (aggregatesAreView) continue;
+				fail(400, 'bad_aggregate', prop ? `"${fn}" is not supported for "${prop.name}" (${prop.type})` : `Unknown property "${property}"`);
+			}
+			keptAggregates[property] = fn;
+		}
+		aggregates = keptAggregates;
 
 		const params: Record<string, string | number> = { collection: collectionId };
 		const where: string[] = ['r.collection_id = @collection'];
@@ -365,24 +467,78 @@ export class CollectionStore {
 
 		const order: string[] = [];
 		const joins: string[] = [];
+		let groupProp: Property | null = null;
+		if (groupBy) {
+			groupProp = byName.get(groupBy.property.toLowerCase())!;
+			joins.push('LEFT JOIN cell g0 ON g0.row_id = r.id AND g0.property_id = @g0p');
+			params.g0p = groupProp.id;
+			const dir = groupBy.direction === 'desc' ? 'DESC' : 'ASC';
+			// The group key leads the order: members of a group stay adjacent and the empty bucket
+			// sorts last; the existing sorts still stack within each group.
+			order.push(`${this.groupKeySql(groupProp, 'g0')} IS NULL`, `${this.orderExpr(groupProp, 'g0')} ${dir}`);
+		}
+		const aggregateEntries = Object.entries(aggregates).map(([property, fn]) => ({ property, fn, prop: byName.get(property.toLowerCase())! }));
+		aggregateEntries.forEach((entry, i) => {
+			joins.push(`LEFT JOIN cell a${i} ON a${i}.row_id = r.id AND a${i}.property_id = @a${i}p`);
+			params[`a${i}p`] = entry.prop.id;
+		});
 		sorts.forEach((sort, i) => {
 			const prop = byName.get(sort.property.toLowerCase());
 			if (!prop) fail(400, 'bad_sort', `Unknown property "${sort.property}"`);
 			joins.push(`LEFT JOIN cell s${i} ON s${i}.row_id = r.id AND s${i}.property_id = @s${i}p`);
 			params[`s${i}p`] = prop.id;
 			const dir = sort.direction === 'desc' ? 'DESC' : 'ASC';
-			if (prop.type === 'number') {
-				order.push(`s${i}.value IS NULL, CAST(json_extract(s${i}.value, '$') AS REAL) ${dir}`);
-			} else if (prop.type === 'checkbox') {
-				order.push(`s${i}.value IS NULL, CAST(json_extract(s${i}.value, '$') AS INTEGER) ${dir}`);
-			} else {
-				order.push(`s${i}.value IS NULL, lower(CAST(json_extract(s${i}.value, '$') AS TEXT)) ${dir}`);
-			}
+			order.push(`s${i}.value IS NULL, ${this.orderExpr(prop, `s${i}`)} ${dir}`);
 		});
 		order.push('r.position, r.id');
 
 		const from = `FROM "row" r ${joins.join(' ')} WHERE ${where.join(' AND ')}`;
 		const total = (this.db.prepare(`SELECT count(*) AS n ${from}`).get(params) as { n: number }).n;
+
+		let groups: GroupInfo[] | null = null;
+		if (groupBy && groupProp) {
+			const key = this.groupKeySql(groupProp, 'g0');
+			const dir = groupBy.direction === 'desc' ? 'DESC' : 'ASC';
+			// Counts cover the whole filtered set, not the page, so a group split across pages keeps
+			// its true count. Keys are constant per group, so the non-aggregate order terms are stable.
+			const groupRows = this.db
+				.prepare(`SELECT ${key} AS grp, count(*) AS n ${from} GROUP BY grp ORDER BY ${key} IS NULL, ${this.orderExpr(groupProp, 'g0')} ${dir}, grp`)
+				.all(params) as { grp: string | null; n: number }[];
+			groups = groupRows.map((g) => ({ key: g.grp, count: g.n }));
+		}
+
+		let aggregateValues: Record<string, { fn: AggregateFn; value: number | string | null }> | null = null;
+		if (aggregateEntries.length > 0) {
+			const select: string[] = [];
+			aggregateEntries.forEach((entry, i) => {
+				const filled = this.filledSql(`a${i}`);
+				const jsonValue = `json_extract(a${i}.value, '$')`;
+				if (entry.fn === 'count') select.push(`count(*) AS agg${i}`);
+				else if (entry.fn === 'count_values') select.push(`count(CASE WHEN ${filled} THEN 1 END) AS agg${i}`);
+				else if (entry.fn === 'sum' || entry.fn === 'average') select.push(`sum(CASE WHEN ${filled} THEN CAST(${jsonValue} AS REAL) END) AS agg${i}`);
+				else {
+					const typed = entry.prop.type === 'number' ? `CAST(${jsonValue} AS REAL)` : `CAST(${jsonValue} AS TEXT)`;
+					select.push(`${entry.fn}(CASE WHEN ${filled} THEN ${typed} END) AS agg${i}`);
+				}
+				if (entry.fn === 'average') select.push(`count(CASE WHEN ${filled} THEN 1 END) AS agg${i}_n`);
+			});
+			const computed = this.db.prepare(`SELECT ${select.join(', ')} ${from}`).get(params) as Record<string, unknown>;
+			aggregateValues = {};
+			aggregateEntries.forEach((entry, i) => {
+				const raw = computed[`agg${i}`];
+				let value: number | string | null;
+				if (raw === null || raw === undefined) value = null;
+				else if (typeof raw === 'number') value = raw;
+				else if (typeof raw === 'bigint') value = Number(raw);
+				else value = String(raw);
+				if (entry.fn === 'average') {
+					const filled = Number(computed[`agg${i}_n`] ?? 0);
+					value = filled > 0 && typeof value === 'number' ? value / filled : null;
+				}
+				aggregateValues![entry.property] = { fn: entry.fn, value };
+			});
+		}
+
 		params.limit = limit;
 		params.offset = offset;
 		const rows = this.db
@@ -403,7 +559,9 @@ export class CollectionStore {
 				created_at: r.created_at as string,
 				updated_at: r.updated_at as string,
 				values: r.values_json ? (JSON.parse(r.values_json as string) as Record<string, unknown>) : {}
-			}))
+			})),
+			groups,
+			aggregates: aggregateValues
 		};
 	}
 
@@ -516,30 +674,65 @@ export class CollectionStore {
 			filters: parseFilters(JSON.parse(r.filters as string)),
 			sorts: parseSorts(JSON.parse(r.sorts as string)),
 			columns: r.columns ? (JSON.parse(r.columns as string) as string[]) : null,
+			group_by: r.group_by ? parseGroupBy(JSON.parse(r.group_by as string)) : null,
+			aggregates: r.aggregates ? (JSON.parse(r.aggregates as string) as Aggregates) : {},
 			position: r.position as number
 		}));
 	}
 
-	saveView(collectionId: string, input: { id?: unknown; name: unknown; filters?: unknown; sorts?: unknown; columns?: unknown }): CollectionView {
+	saveView(
+		collectionId: string,
+		input: {
+			id?: unknown;
+			name: unknown;
+			filters?: unknown;
+			sorts?: unknown;
+			columns?: unknown;
+			group_by?: unknown;
+			aggregates?: unknown;
+		}
+	): CollectionView {
 		this.get(collectionId);
 		const name = asString(input.name, 'name', 80);
 		const filters = parseFilters(input.filters);
 		const sorts = parseSorts(input.sorts);
 		const columns = parseColumns(input.columns);
+		const groupBy = parseGroupBy(input.group_by);
+		const aggregates = parseAggregates(input.aggregates);
+		// A saved view must group and aggregate over properties that exist and allow the chosen
+		// function; queries against it would 400 for every viewer otherwise.
+		const byName = new Map(this.properties(collectionId).map((p) => [p.name.toLowerCase(), p]));
+		if (groupBy && !byName.has(groupBy.property.toLowerCase())) fail(400, 'bad_group', `Unknown property "${groupBy.property}"`);
+		for (const [property, fn] of Object.entries(aggregates)) {
+			const prop = byName.get(property.toLowerCase());
+			if (!prop) fail(400, 'bad_aggregate', `Unknown property "${property}"`);
+			if (!aggregateAllowed(fn, prop.type)) fail(400, 'bad_aggregate', `"${fn}" is not supported for "${prop.name}" (${prop.type})`);
+		}
+		const groupJson = groupBy ? JSON.stringify(groupBy) : null;
+		const aggregateJson = Object.keys(aggregates).length ? JSON.stringify(aggregates) : null;
 		const at = nowIso();
 		const existing = typeof input.id === 'string' ? this.views(collectionId).find((v) => v.id === input.id) : undefined;
 		if (existing) {
 			this.db
-				.prepare('UPDATE "view" SET name = ?, filters = ?, sorts = ?, columns = ? WHERE id = ? AND collection_id = ?')
-				.run(name, JSON.stringify(filters), JSON.stringify(sorts), columns ? JSON.stringify(columns) : null, existing.id, collectionId);
+				.prepare('UPDATE "view" SET name = ?, filters = ?, sorts = ?, columns = ?, group_by = ?, aggregates = ? WHERE id = ? AND collection_id = ?')
+				.run(
+					name,
+					JSON.stringify(filters),
+					JSON.stringify(sorts),
+					columns ? JSON.stringify(columns) : null,
+					groupJson,
+					aggregateJson,
+					existing.id,
+					collectionId
+				);
 			this.notify(collectionId);
 			return this.views(collectionId).find((v) => v.id === existing.id)!;
 		}
 		const id = randomUUID();
 		const position = (this.db.prepare('SELECT coalesce(max(position), -1) + 1 AS n FROM "view" WHERE collection_id = ?').get(collectionId) as { n: number }).n;
 		this.db
-			.prepare('INSERT INTO "view" (id, collection_id, name, filters, sorts, columns, position) VALUES (?, ?, ?, ?, ?, ?, ?)')
-			.run(id, collectionId, name, JSON.stringify(filters), JSON.stringify(sorts), columns ? JSON.stringify(columns) : null, position);
+			.prepare('INSERT INTO "view" (id, collection_id, name, filters, sorts, columns, group_by, aggregates, position) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+			.run(id, collectionId, name, JSON.stringify(filters), JSON.stringify(sorts), columns ? JSON.stringify(columns) : null, groupJson, aggregateJson, position);
 		void at;
 		this.notify(collectionId);
 		return this.views(collectionId).find((v) => v.id === id)!;
@@ -653,13 +846,42 @@ export class CollectionStore {
 		}
 	}
 
+	/** The per-type ordering expression a sort on this property uses, without the NULLs-last term. */
+	private orderExpr(prop: Property, alias: string): string {
+		const jsonValue = `json_extract(${alias}.value, '$')`;
+		if (prop.type === 'number') return `CAST(${jsonValue} AS REAL)`;
+		if (prop.type === 'checkbox') return `CAST(${jsonValue} AS INTEGER)`;
+		return `lower(CAST(${jsonValue} AS TEXT))`;
+	}
+
+	/** The "cell is filled" test, the same one is_empty and is_not_empty use. */
+	private filledSql(alias: string): string {
+		const jsonValue = `json_extract(${alias}.value, '$')`;
+		return `${jsonValue} IS NOT NULL AND ${jsonValue} != '' AND ${jsonValue} != '[]'`;
+	}
+
+	/**
+	 * The group key expression: the raw stored value; date truncated to the day; checkbox
+	 * 'true'/'false'; multi_select the exact stored JSON combination (no per-option fan-out in v1);
+	 * empty and missing cells NULL, which the UI renders as "(empty)".
+	 */
+	private groupKeySql(prop: Property, alias: string): string {
+		const jsonValue = `json_extract(${alias}.value, '$')`;
+		let raw: string;
+		if (prop.type === 'date') raw = `substr(CAST(${jsonValue} AS TEXT), 1, 10)`;
+		else if (prop.type === 'checkbox') raw = `CASE WHEN CAST(${jsonValue} AS INTEGER) = 1 THEN 'true' ELSE 'false' END`;
+		else if (prop.type === 'multi_select') raw = `CAST(${alias}.value AS TEXT)`;
+		else raw = `CAST(${jsonValue} AS TEXT)`;
+		return `CASE WHEN ${this.filledSql(alias)} THEN (${raw}) END`;
+	}
+
 	private filterSql(prop: Property, filter: Filter, index: number, params: Record<string, unknown>): string {
 		const id = `f${index}`;
 		const valueKey = `v${index}`;
 		const cellMatch = `c${index}.row_id = r.id AND c${index}.property_id = @${id}p`;
 		const exists = `SELECT 1 FROM cell c${index} WHERE ${cellMatch}`;
 		const jsonValue = `json_extract(c${index}.value, '$')`;
-		const filled = `${jsonValue} IS NOT NULL AND ${jsonValue} != '' AND ${jsonValue} != '[]'`;
+		const filled = this.filledSql(`c${index}`);
 		const isArray = prop.type === 'multi_select';
 		params[`${id}p`] = prop.id;
 

@@ -193,3 +193,150 @@ describe('collection MCP tools', () => {
 		expect(whole.every((e) => typeof e.at === 'string')).toBe(true);
 	});
 });
+
+// Grouping and aggregates over both paths. A dedicated collection keeps the numbers deterministic.
+describe('grouping and aggregates over REST and MCP', () => {
+	let filmsId: string;
+
+	beforeAll(() => {
+		const store = getCollections();
+		filmsId = store
+			.create({
+				name: 'Films',
+				properties: [
+					{ name: 'Title', type: 'title' },
+					{ name: 'Rating', type: 'number' },
+					{ name: 'Genre', type: 'select', options: ['sci-fi', 'drama'] }
+				]
+			})
+			.id;
+		store.createRow(filmsId, { Title: 'Arrival', Rating: 8, Genre: 'sci-fi' });
+		store.createRow(filmsId, { Title: 'Blade Runner', Rating: 8, Genre: 'sci-fi' });
+		store.createRow(filmsId, { Title: 'Amour', Rating: 9, Genre: 'drama' });
+		store.createRow(filmsId, { Title: 'Unrated' });
+	});
+
+	const rest = (route: string, init: RequestInit = {}) =>
+		new Request(`http://localhost/api/v1/databases/${filmsId}/${route}`, {
+			...init,
+			headers: { 'content-type': 'application/json', ...(init.headers ?? {}) }
+		});
+
+	it('REST: views POST persists group_by and aggregates and the saved view applies on query', async () => {
+		const viewsRoute = await import('../src/routes/api/v1/databases/[id]/views/+server');
+		const created = await viewsRoute.POST({
+			request: rest('views', { method: 'POST', body: JSON.stringify({ name: 'By genre', group_by: { property: 'Genre' }, aggregates: { Rating: 'sum' } }) }),
+			params: { id: filmsId },
+			url: new URL(`http://localhost/api/v1/databases/${filmsId}/views`)
+		} as never);
+		expect(created.status).toBe(201);
+		const view = await created.json();
+		expect(view).toMatchObject({ name: 'By genre', group_by: { property: 'Genre', direction: 'asc' }, aggregates: { Rating: 'sum' } });
+
+		const queryRoute = await import('../src/routes/api/v1/databases/[id]/query/+server');
+		const res = await queryRoute.POST({
+			request: rest('query', { method: 'POST', body: JSON.stringify({ view: view.id }) }),
+			params: { id: filmsId },
+			url: new URL(`http://localhost/api/v1/databases/${filmsId}/query`)
+		} as never);
+		expect(res.status).toBe(200);
+		const queried = await res.json();
+		expect(queried.groups).toEqual([
+			{ key: 'drama', count: 1 },
+			{ key: 'sci-fi', count: 2 },
+			{ key: null, count: 1 }
+		]);
+		expect(queried.aggregates).toEqual({ Rating: { fn: 'sum', value: 25 } });
+	});
+
+	it('REST: query POST carries groups and aggregates and rejects bad ones with 400', async () => {
+		const queryRoute = await import('../src/routes/api/v1/databases/[id]/query/+server');
+		const res = await queryRoute.POST({
+			request: rest('query', { method: 'POST', body: JSON.stringify({ group_by: { property: 'Rating', direction: 'desc' }, aggregates: { Title: 'count' } }) }),
+			params: { id: filmsId },
+			url: new URL(`http://localhost/api/v1/databases/${filmsId}/query`)
+		} as never);
+		const body = await res.json();
+		expect(body.groups).toEqual([
+			{ key: '9', count: 1 },
+			{ key: '8', count: 2 },
+			{ key: null, count: 1 }
+		]);
+		expect(body.aggregates).toEqual({ Title: { fn: 'count', value: 4 } });
+
+		const badFn = await queryRoute.POST({
+			request: rest('query', { method: 'POST', body: JSON.stringify({ aggregates: { Genre: 'sum' } }) }),
+			params: { id: filmsId },
+			url: new URL(`http://localhost/api/v1/databases/${filmsId}/query`)
+		} as never);
+		expect(badFn.status).toBe(400);
+		expect(await badFn.json()).toMatchObject({ error: 'bad_aggregate' });
+
+		const badGroup = await queryRoute.POST({
+			request: rest('query', { method: 'POST', body: JSON.stringify({ group_by: { property: 'Nope' } }) }),
+			params: { id: filmsId },
+			url: new URL(`http://localhost/api/v1/databases/${filmsId}/query`)
+		} as never);
+		expect(badGroup.status).toBe(400);
+		expect(await badGroup.json()).toMatchObject({ error: 'bad_group' });
+	});
+
+	it('REST: rows GET groups with ?group= and stays ungrouped without it', async () => {
+		const rowsRoute = await import('../src/routes/api/v1/databases/[id]/rows/+server');
+		const grouped = await rowsRoute.GET({ params: { id: filmsId }, url: new URL(`http://localhost/api/v1/databases/${filmsId}/rows?group=Genre`) } as never);
+		const body = await grouped.json();
+		expect(body.groups).toHaveLength(3);
+		expect(body.aggregates).toBeNull();
+
+		const plain = await rowsRoute.GET({ params: { id: filmsId }, url: new URL(`http://localhost/api/v1/databases/${filmsId}/rows`) } as never);
+		expect((await plain.json()).groups).toBeNull();
+	});
+
+	it('MCP: query_collection_rows returns groups and aggregates', async () => {
+		const client = await mcpClient();
+		const res = await client.callTool({
+			name: 'query_collection_rows',
+			arguments: { id: filmsId, group_by: { property: 'Genre' }, aggregates: { Rating: 'average' } }
+		});
+		expect(isErr(res)).toBe(false);
+		const queried = text(res);
+		expect(queried.groups).toEqual([
+			{ key: 'drama', count: 1 },
+			{ key: 'sci-fi', count: 2 },
+			{ key: null, count: 1 }
+		]);
+		expect(queried.aggregates).toEqual({ Rating: { fn: 'average', value: 25 / 3 } });
+	});
+
+	it('MCP: save_collection_view creates a working view and validates like REST', async () => {
+		const client = await mcpClient();
+		const saved = await client.callTool({
+			name: 'save_collection_view',
+			arguments: { id: filmsId, name: 'MCP view', group_by: { property: 'Genre', direction: 'desc' }, aggregates: { Rating: 'max' } }
+		});
+		expect(isErr(saved)).toBe(false);
+		const view = text(saved);
+		expect(view).toMatchObject({ name: 'MCP view', group_by: { property: 'Genre', direction: 'desc' }, aggregates: { Rating: 'max' } });
+
+		const viaView = text(await client.callTool({ name: 'query_collection_rows', arguments: { id: filmsId, view: view.id } }));
+		expect((viaView.groups as { key: string | null }[]).map((g) => String(g.key))).toEqual(['sci-fi', 'drama', 'null']);
+		expect(viaView.aggregates).toEqual({ Rating: { fn: 'max', value: 9 } });
+
+		const bad = await client.callTool({ name: 'save_collection_view', arguments: { id: filmsId, name: 'Broken', aggregates: { Genre: 'sum' } } });
+		expect(isErr(bad)).toBe(true);
+		expect(text(bad)).toMatchObject({ error: 'bad_aggregate', status: 400 });
+	});
+
+	it('MCP: get_collection shows the grouping fields on views', async () => {
+		const client = await mcpClient();
+		const got = text(await client.callTool({ name: 'get_collection', arguments: { id: filmsId } }));
+		const views = got.views as Record<string, unknown>[];
+		expect(views).toHaveLength(2);
+		expect(views).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ name: 'By genre', group_by: { property: 'Genre', direction: 'asc' }, aggregates: { Rating: 'sum' } }),
+				expect.objectContaining({ name: 'MCP view', group_by: { property: 'Genre', direction: 'desc' }, aggregates: { Rating: 'max' } })
+			])
+		);
+	});
+});
